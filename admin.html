@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>QuickFix Data — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#101826; --paper:#F7F8FA; --paper-dim:#ECEEF3;
+    --accent:#0F6E5C; --accent-bright:#17B890; --sage:#3B4A63; --line:#DCE1EA; --navy:#0B1220;
+    --err:#c0392b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:'Inter', sans-serif;
+    min-height:100vh;
+  }
+  h1,h2,h3{font-family:'Space Grotesk','Inter',sans-serif;}
+  .mono{font-family:'IBM Plex Mono', monospace;}
+
+  /* --- Login gate --- */
+  #loginScreen{
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:linear-gradient(135deg, var(--navy) 0%, #14243F 100%);
+  }
+  .login-card{
+    background:#fff;
+    border-radius:12px;
+    padding:40px;
+    width:min(380px, 90vw);
+    box-shadow:0 20px 60px rgba(0,0,0,0.3);
+  }
+  .login-card h1{font-size:1.3rem; margin-bottom:6px;}
+  .login-card p{color:#666; font-size:0.88rem; margin-bottom:20px;}
+  .login-card input{
+    width:100%;
+    padding:12px 14px;
+    border:1px solid var(--line);
+    border-radius:7px;
+    font-size:0.95rem;
+    margin-bottom:12px;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  .login-card button{
+    width:100%;
+    padding:12px;
+    background:var(--ink);
+    color:#fff;
+    border:none;
+    border-radius:7px;
+    font-weight:600;
+    cursor:pointer;
+    font-size:0.95rem;
+  }
+  .login-error{color:var(--err); font-size:0.85rem; margin-top:10px; min-height:1.2em;}
+
+  /* --- Dashboard --- */
+  #dashboard{display:none; max-width:1000px; margin:0 auto; padding:32px 20px 80px;}
+  .topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:28px;
+  }
+  .topbar h1{font-size:1.4rem;}
+  .logout-btn{
+    background:none; border:1px solid var(--line); border-radius:7px;
+    padding:8px 16px; cursor:pointer; font-size:0.85rem; color:var(--sage);
+  }
+
+  .stat-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+    gap:14px;
+    margin-bottom:28px;
+  }
+  .stat-card{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:20px;
+    box-shadow:0 1px 3px rgba(16,24,38,0.06);
+  }
+  .stat-card .label{font-size:0.78rem; color:var(--sage); margin-bottom:6px;}
+  .stat-card .value{font-size:1.6rem; font-weight:600; font-family:'Space Grotesk', sans-serif;}
+
+  .panel{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:24px;
+    margin-bottom:20px;
+    box-shadow:0 1px 3px rgba(16,24,38,0.06);
+  }
+  .panel h2{font-size:1rem; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center;}
+  .panel h2 button{
+    font-size:0.8rem; padding:6px 14px; border-radius:6px; border:1px solid var(--line);
+    background:var(--paper-dim); cursor:pointer;
+  }
+  .day-group{margin-bottom:18px;}
+  .day-group .day-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.8rem;
+    color:var(--sage);
+    margin-bottom:8px;
+    padding-bottom:6px;
+    border-bottom:1px dashed var(--line);
+  }
+  .row-item{
+    font-size:0.85rem;
+    padding:8px 0;
+    border-bottom:1px solid var(--paper-dim);
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .row-item .meta{color:#888; font-size:0.78rem;}
+  .empty-note{color:#999; font-size:0.85rem; padding:12px 0;}
+  .err-row{color:var(--err); font-size:0.82rem; padding:8px 0; border-bottom:1px solid var(--paper-dim);}
+  .badge{
+    display:inline-block;
+    font-size:0.65rem;
+    font-weight:700;
+    letter-spacing:0.04em;
+    padding:2px 6px;
+    border-radius:4px;
+    margin-right:6px;
+    vertical-align:middle;
+  }
+  .badge-admin{background:#F0A868; color:#3a2500;}
+  .badge-client{background:#3ED598; color:#003a20;}
+
+  .inline-form{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+  .inline-form input{
+    flex:1; min-width:140px; padding:9px 12px; border:1px solid var(--line); border-radius:6px; font-size:0.85rem;
+  }
+  .inline-form button{
+    padding:9px 16px; background:var(--ink); color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:0.85rem;
+  }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>QuickFix Data — Admin</h1>
+    <p>Enter your admin key to continue. This page only shows on this device until you log out or close the tab.</p>
+    <input type="password" id="adminKeyInput" placeholder="Admin key" autofocus>
+    <button id="loginBtn">Unlock dashboard</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<div id="dashboard">
+  <div class="topbar">
+    <h1>Admin Dashboard</h1>
+    <button class="logout-btn" id="logoutBtn">Log out</button>
+  </div>
+
+  <div class="stat-grid" id="statGrid"></div>
+
+  <div class="panel">
+    <h2>Payment claims <button id="refreshClaimsBtn">Refresh</button></h2>
+    <p style="font-size:0.82rem; color:#666; margin-bottom:12px;">A client scanned the UPI QR, paid, and typed in a UTR — check your UPI app/bank statement for the exact amount shown, then Confirm or Reject.</p>
+    <div id="claimsList"><div class="empty-note">Loading…</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Transaction log <button id="refreshTxnBtn">Refresh</button></h2>
+    <button id="exportCsvBtn" style="margin-bottom:14px; font-size:0.82rem; padding:8px 14px; border-radius:6px; border:1px solid var(--line); background:var(--paper-dim); cursor:pointer;">⬇ Download CSV backup</button>
+    <div id="txnList"><div class="empty-note">Loading…</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Recent errors <button id="refreshErrBtn">Refresh</button></h2>
+    <div id="errList"><div class="empty-note">Loading…</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Manual unlock</h2>
+    <div class="inline-form">
+      <input type="text" id="unlockSessionId" placeholder="Session ID">
+      <button id="unlockBtn">Unlock all</button>
+    </div>
+    <div class="empty-note" id="unlockResult"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Recurring subscriptions <button id="refreshSubBtn">Refresh</button></h2>
+    <div class="inline-form">
+      <input type="email" id="subEmail" placeholder="Client email">
+      <input type="text" id="subSheetUrl" placeholder="Published Google Sheets CSV URL">
+      <button id="subAddBtn">Add</button>
+    </div>
+    <div id="subList"><div class="empty-note">Click refresh to load.</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>CA/accountant partners <button id="refreshPartnersBtn">Refresh</button></h2>
+    <p style="font-size:0.82rem; color:#666; margin-bottom:12px;">Clients can request one of these once their file is unlocked (get_ca_referral) — a matching layer, not a filing service.</p>
+    <div class="inline-form">
+      <input type="text" id="partnerName" placeholder="Name">
+      <input type="text" id="partnerSpecialty" placeholder="Specialty (optional)">
+      <input type="text" id="partnerContact" placeholder="Phone/email">
+      <input type="text" id="partnerRegion" placeholder="Region (optional)">
+      <button id="partnerAddBtn">Add</button>
+    </div>
+    <div id="partnerList"><div class="empty-note">Click refresh to load.</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>API keys <button id="refreshApiKeysBtn">Refresh</button></h2>
+    <p style="font-size:0.82rem; color:#666; margin-bottom:12px;">For external tools/integrations calling this Worker directly. Raises rate limits and attributes usage — never bypasses payment.</p>
+    <div class="inline-form">
+      <input type="text" id="apiKeyLabel" placeholder="Label (e.g. 'Tally Bridge script')">
+      <button id="apiKeyAddBtn">Create key</button>
+    </div>
+    <div id="apiKeyNewResult" style="margin-bottom:10px; font-size:0.85rem;"></div>
+    <div id="apiKeyList"><div class="empty-note">Click refresh to load.</div></div>
+  </div>
+</div>
+
+<script>
+  const WORKER_URL = 'https://quickfixdata.quickfixdata.workers.dev'; // update to your custom domain once set up
+
+  // Escapes text before it goes into innerHTML. Transaction emails, error
+  // messages, and subscription emails/URLs all originate from data a
+  // CLIENT controls (CSV cells, email fields) — without this, a malicious
+  // value like <img src=x onerror=...> would execute in this admin page
+  // and could steal the admin key out of sessionStorage. Every dynamic
+  // value rendered below goes through this first.
+  function esc(str) {
+    const div = document.createElement('div');
+    div.textContent = String(str ?? '');
+    return div.innerHTML;
+  }
+
+  let adminKey = sessionStorage.getItem('qfd_admin_key') || '';
+
+  const loginScreen = document.getElementById('loginScreen');
+  const dashboard = document.getElementById('dashboard');
+  const loginError = document.getElementById('loginError');
+
+  async function callAdmin(action, extra) {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, adminKey, ...extra }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'request-failed');
+    return data;
+  }
+
+  async function tryLogin(key) {
+    adminKey = key;
+    try {
+      await callAdmin('admin_stats');
+      sessionStorage.setItem('qfd_admin_key', key);
+      loginScreen.style.display = 'none';
+      dashboard.style.display = 'block';
+      loadAll();
+    } catch {
+      loginError.textContent = 'Wrong key, or admin not configured on the backend yet.';
+      adminKey = '';
+    }
+  }
+
+  document.getElementById('loginBtn').addEventListener('click', () => {
+    tryLogin(document.getElementById('adminKeyInput').value.trim());
+  });
+  document.getElementById('adminKeyInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') tryLogin(e.target.value.trim());
+  });
+  document.getElementById('logoutBtn').addEventListener('click', () => {
+    sessionStorage.removeItem('qfd_admin_key');
+    location.reload();
+  });
+
+  function groupByDay(records) {
+    const groups = {};
+    records.forEach((r) => {
+      const day = new Date(r.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      (groups[day] = groups[day] || []).push(r);
+    });
+    return groups;
+  }
+
+  async function loadStats() {
+    try {
+      const data = await callAdmin('admin_stats');
+      const s = data.stats;
+      const cards = [
+        ['Total sessions', s.total_sessions],
+        ['Paid sessions', s.paid_sessions],
+        ['Revenue', `₹${s.revenue_inr}`],
+        ['Active members', s.active_members],
+        ['Chat messages', s.chat_messages],
+        ['Admin test sessions', s.admin_test_sessions],
+      ];
+      document.getElementById('statGrid').innerHTML = cards.map(([label, value]) =>
+        `<div class="stat-card"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div></div>`
+      ).join('');
+    } catch (e) {
+      document.getElementById('statGrid').innerHTML = `<div class="empty-note">Could not load stats.</div>`;
+    }
+  }
+
+  async function loadTransactions() {
+    const el = document.getElementById('txnList');
+    el.innerHTML = '<div class="empty-note">Loading…</div>';
+    try {
+      const data = await callAdmin('list_transactions', { limit: 100 });
+      if (!data.transactions.length) { el.innerHTML = '<div class="empty-note">No transactions yet.</div>'; return; }
+      const groups = groupByDay(data.transactions);
+      el.innerHTML = Object.entries(groups).map(([day, records]) => `
+        <div class="day-group">
+          <div class="day-label">${esc(day)} — ${records.length} transaction(s)</div>
+          ${records.map((r) => `
+            <div class="row-item">
+              <span>
+                <span class="badge ${r.isAdmin ? 'badge-admin' : 'badge-client'}">${r.isAdmin ? 'ADMIN' : 'CLIENT'}</span>
+                ${esc(r.type)} — ${esc(r.email) || '(no email)'}
+              </span>
+              <span class="meta mono">₹${esc(r.amount ?? 'plan')} · ${esc(r.referenceId)}</span>
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+    } catch {
+      el.innerHTML = '<div class="empty-note">Could not load transactions.</div>';
+    }
+  }
+
+  async function loadErrors() {
+    const el = document.getElementById('errList');
+    el.innerHTML = '<div class="empty-note">Loading…</div>';
+    try {
+      const data = await callAdmin('list_errors', { limit: 30 });
+      if (!data.errors.length) { el.innerHTML = '<div class="empty-note">✅ No errors in the last 30 days.</div>'; return; }
+      el.innerHTML = data.errors.map((e) =>
+        `<div class="err-row">${esc(new Date(e.timestamp).toLocaleString('en-IN'))} — [${esc(e.context)}] ${esc(e.error)}</div>`
+      ).join('');
+    } catch {
+      el.innerHTML = '<div class="empty-note">Could not load errors.</div>';
+    }
+  }
+
+  async function loadSubscriptions() {
+    const el = document.getElementById('subList');
+    el.innerHTML = '<div class="empty-note">Loading…</div>';
+    try {
+      const data = await callAdmin('list_subscriptions');
+      if (!data.subscriptions.length) { el.innerHTML = '<div class="empty-note">No subscriptions yet.</div>'; return; }
+      el.innerHTML = data.subscriptions.map((s) => `
+        <div class="row-item">
+          <span>${esc(s.email)} — ${esc(s.sheetUrl.slice(0, 50))}…</span>
+          <button data-subid="${esc(s.id)}" style="font-size:0.75rem; padding:4px 10px; border-radius:5px; border:1px solid var(--line); cursor:pointer;">Remove</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('button[data-subid]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          await callAdmin('unsubscribe', { subId: btn.dataset.subid });
+          loadSubscriptions();
+        });
+      });
+    } catch {
+      el.innerHTML = '<div class="empty-note">Could not load subscriptions.</div>';
+    }
+  }
+
+  async function loadClaims() {
+    const el = document.getElementById('claimsList');
+    el.innerHTML = '<div class="empty-note">Loading…</div>';
+    try {
+      const data = await callAdmin('list_payment_claims');
+      if (!data.claims.length) { el.innerHTML = '<div class="empty-note">No pending claims.</div>'; return; }
+      const kindLabel = { onetime: 'One-time file', sub: 'Monthly subscription', email: 'Email intake' };
+      el.innerHTML = data.claims.map((c) => `
+        <div class="row-item" style="align-items:center;">
+          <span>
+            <b>${esc(kindLabel[c.kind] || c.kind)}</b> — ${esc(c.email) || '(no email)'}<br>
+            <span class="meta mono">₹${esc(c.amount)} · UTR: ${esc(c.utr)} · ${esc(new Date(c.claimedAt).toLocaleString('en-IN'))}</span>
+          </span>
+          <span style="display:flex; gap:8px;">
+            <button data-confirm data-kind="${esc(c.kind)}" data-id="${esc(c.id)}" style="font-size:0.75rem; padding:5px 12px; border-radius:5px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer;">Confirm</button>
+            <button data-reject data-kind="${esc(c.kind)}" data-id="${esc(c.id)}" style="font-size:0.75rem; padding:5px 12px; border-radius:5px; border:1px solid var(--err); background:#fff; color:var(--err); cursor:pointer;">Reject</button>
+          </span>
+        </div>
+      `).join('');
+      el.querySelectorAll('button[data-confirm]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true; btn.textContent = 'Confirming…';
+          try {
+            await callAdmin('confirm_claim', { kind: btn.dataset.kind, id: btn.dataset.id });
+            loadClaims(); loadTransactions(); loadStats();
+          } catch (e) {
+            alert('Could not confirm: ' + e.message);
+            btn.disabled = false; btn.textContent = 'Confirm';
+          }
+        });
+      });
+      el.querySelectorAll('button[data-reject]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Reject this claim? The client will be emailed that it could not be verified.')) return;
+          btn.disabled = true; btn.textContent = 'Rejecting…';
+          try {
+            await callAdmin('reject_claim', { kind: btn.dataset.kind, id: btn.dataset.id });
+            loadClaims();
+          } catch (e) {
+            alert('Could not reject: ' + e.message);
+            btn.disabled = false; btn.textContent = 'Reject';
+          }
+        });
+      });
+    } catch {
+      el.innerHTML = '<div class="empty-note">Could not load claims.</div>';
+    }
+  }
+
+  document.getElementById('refreshClaimsBtn').addEventListener('click', loadClaims);
+  document.getElementById('refreshTxnBtn').addEventListener('click', loadTransactions);
+  document.getElementById('refreshErrBtn').addEventListener('click', loadErrors);
+  document.getElementById('refreshSubBtn').addEventListener('click', loadSubscriptions);
+
+  document.getElementById('exportCsvBtn').addEventListener('click', async () => {
+    try {
+      const data = await callAdmin('export_transactions_csv');
+      const blob = new Blob([data.csv], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `quickfix-transactions-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+    } catch {
+      alert('Could not export — check your connection and try again.');
+    }
+  });
+
+  document.getElementById('unlockBtn').addEventListener('click', async () => {
+    const sessionId = document.getElementById('unlockSessionId').value.trim();
+    const el = document.getElementById('unlockResult');
+    if (!sessionId) return;
+    el.textContent = 'Unlocking…';
+    try {
+      const data = await callAdmin('unlock', { sessionId, options: ['clean', 'invoice', 'reminder'] });
+      el.textContent = `✅ Unlocked: ${JSON.stringify(data.unlocked)}`;
+      loadTransactions();
+      loadStats();
+    } catch (e) {
+      el.textContent = `❌ ${e.message}`;
+    }
+  });
+
+  document.getElementById('subAddBtn').addEventListener('click', async () => {
+    const email = document.getElementById('subEmail').value.trim();
+    const sheetUrl = document.getElementById('subSheetUrl').value.trim();
+    if (!email || !sheetUrl) return;
+    try {
+      await callAdmin('subscribe', { email, sheetUrl, opts: { clean: true, invoice: true, reminder: true } });
+      document.getElementById('subEmail').value = '';
+      document.getElementById('subSheetUrl').value = '';
+      loadSubscriptions();
+    } catch (e) {
+      alert('Could not add subscription: ' + e.message);
+    }
+  });
+
+  // --- CA/accountant partners ---
+  async function loadPartners() {
+    const el = document.getElementById('partnerList');
+    el.innerHTML = '<div class="empty-note">Loading…</div>';
+    try {
+      const data = await callAdmin('list_ca_partners');
+      if (!data.partners.length) { el.innerHTML = '<div class="empty-note">No partners added yet.</div>'; return; }
+      el.innerHTML = data.partners.map((p) => `
+        <div class="row-item">
+          <span><b>${esc(p.name)}</b>${p.specialty ? ' — ' + esc(p.specialty) : ''} · ${esc(p.contact)}${p.region ? ' · ' + esc(p.region) : ''}</span>
+          <button data-partnerid="${esc(p.id)}" style="font-size:0.75rem; padding:4px 10px; border-radius:5px; border:1px solid var(--line); cursor:pointer;">Remove</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('button[data-partnerid]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          await callAdmin('remove_ca_partner', { partnerId: btn.dataset.partnerid });
+          loadPartners();
+        });
+      });
+    } catch {
+      el.innerHTML = '<div class="empty-note">Could not load partners.</div>';
+    }
+  }
+
+  document.getElementById('refreshPartnersBtn').addEventListener('click', loadPartners);
+  document.getElementById('partnerAddBtn').addEventListener('click', async () => {
+    const name = document.getElementById('partnerName').value.trim();
+    const specialty = document.getElementById('partnerSpecialty').value.trim();
+    const contact = document.getElementById('partnerContact').value.trim();
+    const region = document.getElementById('partnerRegion').value.trim();
+    if (!name || !contact) { alert('Name and contact are required.'); return; }
+    try {
+      await callAdmin('add_ca_partner', { name, specialty, contact, region });
+      document.getElementById('partnerName').value = '';
+      document.getElementById('partnerSpecialty').value = '';
+      document.getElementById('partnerContact').value = '';
+      document.getElementById('partnerRegion').value = '';
+      loadPartners();
+    } catch (e) {
+      alert('Could not add partner: ' + e.message);
+    }
+  });
+
+  // --- API keys ---
+  async function loadApiKeys() {
+    const el = document.getElementById('apiKeyList');
+    el.innerHTML = '<div class="empty-note">Loading…</div>';
+    try {
+      const data = await callAdmin('list_api_keys');
+      if (!data.keys.length) { el.innerHTML = '<div class="empty-note">No API keys yet.</div>'; return; }
+      el.innerHTML = data.keys.map((k) => `
+        <div class="row-item">
+          <span><b>${esc(k.label)}</b> · <span class="mono">${esc(k.maskedKey)}</span> · ${esc(k.requestCount || 0)} request(s)</span>
+          <button data-key="${esc(k.maskedKey)}" data-fullkey-hint="true" style="font-size:0.75rem; padding:4px 10px; border-radius:5px; border:1px solid var(--line); cursor:pointer;">Revoke</button>
+        </div>
+      `).join('');
+      // Revoke needs the FULL key, which is intentionally never sent back
+      // after creation — so revoking here asks for it once, rather than
+      // storing it anywhere retrievable.
+      el.querySelectorAll('button[data-fullkey-hint]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const fullKey = prompt('Paste the full API key to revoke it (shown only once at creation — check your records):');
+          if (!fullKey) return;
+          await callAdmin('revoke_api_key', { apiKey: fullKey.trim() });
+          loadApiKeys();
+        });
+      });
+    } catch {
+      el.innerHTML = '<div class="empty-note">Could not load API keys.</div>';
+    }
+  }
+
+  document.getElementById('refreshApiKeysBtn').addEventListener('click', loadApiKeys);
+  document.getElementById('apiKeyAddBtn').addEventListener('click', async () => {
+    const label = document.getElementById('apiKeyLabel').value.trim();
+    if (!label) { alert('Give the key a label so you remember what it\'s for.'); return; }
+    const resultEl = document.getElementById('apiKeyNewResult');
+    try {
+      const data = await callAdmin('create_api_key', { label });
+      resultEl.innerHTML = `<b>Save this now — it won't be shown again:</b><br><span class="mono" style="word-break:break-all;">${esc(data.apiKey)}</span>`;
+      document.getElementById('apiKeyLabel').value = '';
+      loadApiKeys();
+    } catch (e) {
+      resultEl.textContent = 'Could not create key: ' + e.message;
+    }
+  });
+
+  function loadAll() {
+    loadStats();
+    loadClaims();
+    loadTransactions();
+    loadErrors();
+  }
+
+  // Auto-login if a key is already stored for this tab session.
+  if (adminKey) tryLogin(adminKey);
+</script>
+
+</body>
+</html>

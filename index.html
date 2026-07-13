@@ -1,0 +1,2454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://static.cloudflareinsights.com; connect-src 'self' https://*.workers.dev https://mail.google.com; img-src 'self' data: https://api.qrserver.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;">
+<!-- Note: 'unsafe-inline' on script-src is needed because this page's
+     JS lives in inline script blocks (the whole point of the zero-build
+     "paste and deploy" setup). This CSP still blocks the two riskiest
+     things — arbitrary third-party script injection and framing this
+     page inside someone else's site — while allowing the specific
+     services this tool actually uses (Google Fonts, Cloudflare Analytics,
+     the xlsx library, and api.qrserver.com for UPI QR codes). -->
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QuickFix Data — Spreadsheet & Automation Fixes, Same Day</title>
+<meta name="description" content="Same-day spreadsheet clean-up, automation, and simple web tools for small businesses in Chennai. Try it free before you pay.">
+<meta property="og:title" content="QuickFix Data — Spreadsheet & Automation Fixes, Same Day">
+<meta property="og:description" content="Messy spreadsheet? Repetitive task eating your time? Same-day fixes, pay only once you see it working.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%2314181F'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23E8A33D'%3E%E2%9C%93%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    /* Corporate/fintech palette — deep navy for trust + authority,
+       emerald for money/growth, cool grays instead of warm cream.
+       Deliberately moving away from warm-cream+terracotta, which is
+       the generic "AI-generated" default look. */
+    --ink:#101826;        /* was warm near-black, now deep navy-ink */
+    --paper:#F7F8FA;       /* was warm cream #EFE9DE, now cool off-white */
+    --paper-dim:#ECEEF3;   /* was warm tan, now light cool gray */
+    --amber:#0F6E5C;       /* was terracotta amber, now deep emerald (kept var name for compatibility) */
+    --sage:#3B4A63;        /* was sage green, now muted slate-blue */
+    --line:#DCE1EA;        /* was warm tan hairline, now cool gray hairline */
+    --navy:#0B1220;
+    --accent-bright:#17B890;
+  }
+  h1, h2, h3, .brand, .section-title, .step-label{ font-family:'Space Grotesk', 'Inter', sans-serif; }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter', sans-serif;
+    line-height:1.5;
+  }
+  .mono{font-family:'IBM Plex Mono', monospace;}
+  header{
+    padding:28px 6vw 0;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .brand{font-family:'IBM Plex Mono', monospace; font-weight:600; letter-spacing:0.02em; font-size:15px;}
+  .brand span{color:var(--amber);}
+  nav a{
+    color:var(--ink);
+    text-decoration:none;
+    font-size:14px;
+    margin-left:28px;
+    font-weight:500;
+    opacity:0.75;
+  }
+  nav a:hover{opacity:1;}
+
+  .hero{
+    padding:8vh 6vw 6vh;
+    display:grid;
+    grid-template-columns:1.1fr 0.9fr;
+    gap:40px;
+    align-items:center;
+  }
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:13px;
+    color:var(--sage);
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    margin-bottom:18px;
+    display:block;
+  }
+  h1{
+    font-size:clamp(2.2rem, 4.5vw, 3.6rem);
+    line-height:1.08;
+    font-weight:700;
+    letter-spacing:-0.01em;
+    max-width:14ch;
+  }
+  h1 em{
+    font-style:normal;
+    color:var(--amber);
+  }
+  .sub{
+    margin-top:22px;
+    font-size:1.05rem;
+    max-width:46ch;
+    color:#3b4048;
+  }
+  .cta-row{
+    margin-top:32px;
+    display:flex;
+    gap:14px;
+    flex-wrap:wrap;
+  }
+  .btn{
+    display:inline-block;
+    padding:14px 26px;
+    border-radius:7px;
+    font-weight:600;
+    font-size:15px;
+    text-decoration:none;
+    transition:transform 0.15s ease;
+  }
+  .btn-primary{
+    background:var(--ink);
+    color:var(--paper);
+  }
+  .btn-primary:hover{transform:translateY(-2px);}
+  .btn-ghost{
+    border:1.5px solid var(--ink);
+    color:var(--ink);
+  }
+  .btn-ghost:hover{background:var(--ink); color:var(--paper);}
+
+  /* Signature element: grid that resolves from chaos to order */
+  .grid-demo{
+    background:var(--ink);
+    border-radius:4px;
+    padding:22px;
+    aspect-ratio:1/0.85;
+    display:grid;
+    grid-template-columns:repeat(6, 1fr);
+    grid-template-rows:repeat(7, 1fr);
+    gap:5px;
+  }
+  .cell{
+    background:#232A36;
+    border-radius:1px;
+    transition:background 1.8s ease, transform 1.8s ease;
+  }
+  .cell.on{background:var(--amber);}
+  .cell.sage{background:var(--sage);}
+  .grid-caption{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--paper-dim);
+    margin-top:14px;
+    text-align:center;
+    letter-spacing:0.03em;
+  }
+
+  section{padding:6vh 6vw;}
+  .divider{
+    border-top:1.5px solid var(--line);
+  }
+  .section-title{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--sage);
+    margin-bottom:28px;
+  }
+
+  .services{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:1px;
+    background:var(--line);
+    border:1px solid var(--line);
+  }
+  .service{
+    background:var(--paper);
+    padding:28px 24px;
+  }
+  .service .tag{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--amber);
+    display:block;
+    margin-bottom:10px;
+  }
+  .service h3{
+    font-size:1.15rem;
+    margin-bottom:10px;
+    font-weight:600;
+  }
+  .service p{
+    font-size:0.92rem;
+    color:#4a4f57;
+    margin-bottom:14px;
+  }
+  .price{
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:600;
+    font-size:1.05rem;
+  }
+  .turn{
+    font-size:0.8rem;
+    color:var(--sage);
+    margin-top:4px;
+  }
+
+  .proof{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:24px;
+  }
+  .proof-item{
+    border:1px solid var(--line);
+    padding:22px;
+    background:var(--paper);
+  }
+  .proof-item .num{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:1.8rem;
+    font-weight:600;
+    color:var(--ink);
+  }
+  .proof-item .lbl{
+    font-size:0.85rem;
+    color:#4a4f57;
+    margin-top:4px;
+  }
+
+  .contact{
+    background:var(--ink);
+    color:var(--paper);
+    border-radius:4px;
+    padding:5vh 5vw;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:24px;
+  }
+  .contact h2{
+    font-size:1.7rem;
+    max-width:20ch;
+  }
+  .contact .btn-primary{
+    background:var(--amber);
+    color:var(--ink);
+  }
+  footer{
+    text-align:center;
+    padding:30px 6vw 40px;
+    font-size:0.8rem;
+    color:#6b7078;
+    font-family:'IBM Plex Mono', monospace;
+  }
+
+  @media (max-width: 800px){
+    .hero{grid-template-columns:1fr;}
+    .services{grid-template-columns:1fr;}
+    .proof{grid-template-columns:1fr;}
+    .contact{flex-direction:column; align-items:flex-start;}
+  }
+  @media (max-width: 420px){
+    header{flex-wrap:wrap; gap:10px;}
+    nav a{margin-left:0; margin-right:18px; font-size:13px;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .cell{transition:none;}
+  }
+
+  /* --- Tools section --- */
+  .tool-panel{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:32px;
+    margin-bottom:20px;
+    box-shadow:0 1px 3px rgba(16,24,38,0.06), 0 1px 2px rgba(16,24,38,0.04);
+  }
+  .step-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--sage);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin-bottom:14px;
+    display:block;
+  }
+  .dropzone{
+    border:2px dashed var(--line);
+    border-radius:4px;
+    padding:36px 20px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color 0.15s ease, background 0.15s ease;
+  }
+  .dropzone.drag{border-color:var(--amber); background:#fdf7ec;}
+  .dropzone p{font-size:0.95rem; color:#4a4f57;}
+  .dropzone .filename{
+    margin-top:10px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.85rem;
+    color:var(--ink);
+    font-weight:600;
+  }
+  input[type=file]{display:none;}
+  .tool-options{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:14px;
+    margin-top:20px;
+  }
+  .topt{
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:16px;
+    cursor:pointer;
+    transition:border-color 0.15s ease, background 0.15s ease;
+  }
+  .topt.active{border-color:var(--amber); background:#fdf7ec;}
+  .topt input{margin-right:8px;}
+  .topt .otitle{font-weight:600; font-size:0.95rem;}
+  .topt .odesc{font-size:0.8rem; color:#6b7078; margin-top:4px;}
+  .btn-primary:disabled{opacity:0.4; cursor:not-allowed;}
+  .tool-error{color:#b5493a; font-size:0.9rem; margin-top:14px;}
+  .tool-hint{font-size:0.82rem; color:#6b7078; margin-top:10px;}
+  .tool-results h3{font-size:1.1rem; margin-bottom:6px;}
+  .result-block{border:1px solid var(--line); border-radius:4px; margin-top:16px; overflow:hidden;}
+  .result-head{
+    background:var(--ink);
+    color:var(--paper);
+    padding:10px 16px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.82rem;
+  }
+  .result-head button{
+    background:var(--amber);
+    color:var(--ink);
+    border:none;
+    padding:6px 14px;
+    border-radius:2px;
+    font-weight:600;
+    font-size:0.8rem;
+    cursor:pointer;
+  }
+  .result-block pre{
+    padding:16px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.78rem;
+    max-height:260px;
+    overflow:auto;
+    white-space:pre-wrap;
+    color:#2a2f38;
+    background:#fbf9f4;
+  }
+  .empty-note{font-size:0.85rem; color:#6b7078; padding:16px;}
+  @media (max-width:700px){
+    .tool-options{grid-template-columns:1fr;}
+  }
+
+  /* --- Before/after proof --- */
+  .before-after{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+  }
+  .ba-col{display:flex; flex-direction:column;}
+  .ba-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin-bottom:8px;
+    font-weight:600;
+  }
+  .ba-before{color:var(--err, #b5493a);}
+  .ba-after{color:var(--sage);}
+  .ba-pre{
+    background:var(--ink);
+    color:#d8d2c2;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.72rem;
+    padding:16px;
+    border-radius:4px;
+    overflow-x:auto;
+    line-height:1.6;
+    margin:0;
+  }
+  @media (max-width:700px){
+    .before-after{grid-template-columns:1fr;}
+  }
+
+  /* --- Contact form --- */
+  .contact-form{
+    display:grid;
+    gap:12px;
+    max-width:420px;
+  }
+  .contact-form input, .contact-form textarea{
+    font-family:'Inter', sans-serif;
+    font-size:0.95rem;
+    padding:12px 14px;
+    border:1px solid var(--line);
+    border-radius:2px;
+    background:#fff;
+    color:var(--ink);
+  }
+  .contact-form textarea{resize:vertical; min-height:70px;}
+  .contact-note{
+    font-size:0.8rem;
+    color:var(--paper-dim);
+    margin-top:10px;
+  }
+  .contact-note.ok{color:#3ED598;}
+  .contact-note.err{color:#F0A868;}
+  .sr-only{
+    position:absolute;
+    width:1px; height:1px;
+    overflow:hidden;
+    clip:rect(0,0,0,0);
+  }
+
+  /* --- Locked session UI --- */
+  .locked-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:20px;
+    flex-wrap:wrap;
+    margin-bottom:20px;
+  }
+  .timer-box{
+    background:var(--ink);
+    color:var(--paper);
+    border-radius:4px;
+    padding:10px 18px;
+    text-align:center;
+    min-width:100px;
+  }
+  .timer-label{
+    display:block;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--paper-dim);
+  }
+  .timer-value{
+    display:block;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:1.4rem;
+    font-weight:600;
+    color:var(--amber);
+  }
+  .timer-value.urgent{color:#e05c48;}
+  .option-locks{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:14px;
+    margin-bottom:20px;
+  }
+  .opt-lock-card{
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:16px;
+    text-align:center;
+  }
+  .opt-lock-card.unlocked{
+    border-color:var(--sage);
+    background:#f4f6f0;
+  }
+  .opt-lock-card .ol-icon{font-size:1.3rem; display:block; margin-bottom:6px;}
+  .opt-lock-card .ol-title{font-weight:600; font-size:0.9rem;}
+  .opt-lock-card .ol-status{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.75rem;
+    color:var(--sage);
+    margin-top:4px;
+  }
+  .opt-lock-card.locked .ol-status{color:#8a8375;}
+  @media (max-width:700px){
+    .option-locks{grid-template-columns:1fr;}
+  }
+
+  /* --- Admin panel --- */
+  .admin-panel{
+    background:#fff3d6;
+    border:2px dashed var(--amber);
+  }
+  .admin-panel input{
+    font-family:'Inter', sans-serif;
+    font-size:0.9rem;
+    padding:10px 12px;
+    border:1px solid var(--line);
+    border-radius:2px;
+    margin-bottom:10px;
+    width:100%;
+    max-width:400px;
+    display:block;
+  }
+  .admin-check-row{
+    display:flex;
+    gap:16px;
+    margin:12px 0;
+    flex-wrap:wrap;
+  }
+  .admin-check-row label{font-size:0.9rem; display:flex; align-items:center; gap:6px;}
+  .admin-result{
+    margin-top:12px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.85rem;
+  }
+
+  /* --- Limit banner & pricing CTAs --- */
+  .limit-banner{
+    background:var(--ink);
+    color:var(--paper);
+    border:2px solid var(--amber);
+    border-radius:4px;
+    padding:20px 22px;
+    margin-top:16px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:14px;
+  }
+  .limit-banner .lb-text{
+    font-size:0.92rem;
+  }
+  .limit-banner .lb-text strong{color:var(--amber);}
+  .limit-banner .btn-primary{
+    background:var(--amber);
+    color:var(--ink);
+    white-space:nowrap;
+  }
+  .service-cta{
+    display:inline-block;
+    margin-top:14px;
+    padding:9px 16px;
+    border:1.5px solid var(--ink);
+    border-radius:2px;
+    font-size:0.85rem;
+    font-weight:600;
+    color:var(--ink);
+    text-decoration:none;
+    transition:background 0.15s ease, color 0.15s ease;
+  }
+  .service-cta:hover{background:var(--ink); color:var(--paper);}
+
+  /* --- Monthly plan + membership bar (NEW) --- */
+  .member-bar{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:16px;
+    flex-wrap:wrap;
+  }
+  .member-bar input{
+    flex:1;
+    min-width:220px;
+    padding:9px 12px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    font-family:'Inter', sans-serif;
+    font-size:0.85rem;
+  }
+  .member-status{font-family:'IBM Plex Mono', monospace; font-size:0.8rem;}
+  .member-status.active{color:var(--accent-bright);}
+  .plan-panel{
+    background:linear-gradient(135deg, var(--navy) 0%, #14243F 100%);
+    color:#fff;
+    margin-bottom:20px;
+  }
+  .plan-panel .step-label{color:var(--accent-bright);}
+  .plan-panel .tool-hint{color:#B9C2D6;}
+  .plan-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .plan-price{
+    font-size:1.6rem;
+    font-weight:600;
+    color:#fff;
+  }
+  .plan-price span{font-size:0.85rem; color:#B9C2D6; font-weight:400;}
+  .plan-row input{
+    flex:1;
+    min-width:200px;
+    padding:9px 12px;
+    border:1px solid rgba(255,255,255,0.25);
+    border-radius:6px;
+    background:rgba(255,255,255,0.08);
+    color:#fff;
+    font-family:'Inter', sans-serif;
+    font-size:0.85rem;
+  }
+  .plan-row input::placeholder{color:#8792A8;}
+  .plan-row button{background:var(--accent-bright); color:var(--navy); border:none;}
+
+  .chat-bubble{
+    position:fixed;
+    bottom:22px;
+    right:22px;
+    background:var(--ink);
+    color:var(--amber);
+    width:56px;
+    height:56px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:1.5rem;
+    border:none;
+    cursor:pointer;
+    box-shadow:0 4px 14px rgba(0,0,0,0.25);
+    z-index:999;
+    transition:transform 0.15s ease;
+  }
+  .chat-bubble:hover{transform:scale(1.08);}
+  .chat-panel{
+    position:fixed;
+    bottom:90px;
+    right:22px;
+    width:min(340px, 90vw);
+    max-height:70vh;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:8px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.2);
+    display:none;
+    flex-direction:column;
+    overflow:hidden;
+    z-index:999;
+  }
+  .chat-panel.open{display:flex;}
+  .chat-head{
+    background:var(--ink);
+    color:var(--paper);
+    padding:14px 16px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .chat-head strong{font-size:0.95rem;}
+  .chat-head span{font-size:0.75rem; color:var(--paper-dim); display:block; margin-top:2px;}
+  .chat-close{background:none; border:none; color:var(--paper); font-size:1.1rem; cursor:pointer; line-height:1;}
+  .chat-body{
+    flex:1;
+    overflow-y:auto;
+    padding:14px 16px;
+    background:#fbf9f4;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    min-height:120px;
+  }
+  .chat-msg{
+    max-width:85%;
+    padding:9px 12px;
+    border-radius:10px;
+    font-size:0.87rem;
+    line-height:1.4;
+  }
+  .chat-msg.bot{
+    background:#eee7d8;
+    color:var(--ink);
+    align-self:flex-start;
+    border-bottom-left-radius:2px;
+  }
+  .chat-msg.me{
+    background:var(--amber);
+    color:var(--ink);
+    align-self:flex-end;
+    border-bottom-right-radius:2px;
+  }
+  .chat-quick-replies{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    align-self:flex-start;
+    max-width:100%;
+  }
+  .chat-quick-replies button{
+    font-size:0.78rem;
+    padding:6px 10px;
+    border-radius:14px;
+    border:1px solid var(--line);
+    background:#fff;
+    cursor:pointer;
+    color:var(--ink);
+  }
+  .chat-quick-replies button:hover{background:#eee7d8;}
+  .chat-input-row{
+    border-top:1px solid var(--line);
+    padding:10px;
+    display:flex;
+    gap:8px;
+    background:#fff;
+  }
+  .chat-input-row input[type=text]{
+    flex:1;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:9px 10px;
+    font-family:'Inter', sans-serif;
+    font-size:0.87rem;
+  }
+  .chat-input-row button{
+    background:var(--ink);
+    color:var(--paper);
+    border:none;
+    border-radius:6px;
+    padding:0 16px;
+    font-weight:600;
+    cursor:pointer;
+    font-size:0.85rem;
+  }
+  .chat-input-row button:disabled{opacity:0.5; cursor:not-allowed;}
+  .chat-email-row{padding:8px 10px 0;}
+  .chat-email-row input{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:8px 10px;
+    font-size:0.82rem;
+    font-family:'Inter', sans-serif;
+  }
+  @media (max-width:420px){
+    .chat-panel{right:12px; bottom:82px; width:calc(100vw - 24px);}
+    .chat-bubble{right:16px; bottom:16px;}
+  }
+
+  /* --- Price + pay button (NEW) --- */
+  .gst-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin:16px 0;
+    flex-wrap:wrap;
+    font-size:0.88rem;
+  }
+  .gst-row input[type=number]{
+    width:70px;
+    padding:6px 8px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  .gst-row input[type=number]:disabled{background:var(--paper-dim); color:#999;}
+  .price-line{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:1rem;
+    font-weight:600;
+    margin:14px 0 6px;
+  }
+  .price-line .amt{color:var(--amber);}
+  .price-breakdown{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.82rem;
+    color:var(--ink-soft, #666);
+    margin-top:10px;
+    line-height:1.7;
+  }
+  .price-breakdown .pb-row{display:flex; justify-content:space-between; gap:12px; max-width:320px;}
+  .price-breakdown .pb-discount{color:var(--emerald, #0F6E5C);}
+  .pay-btn{
+    background:#25D366;
+    color:#fff;
+  }
+  .pay-btn:disabled{opacity:0.5; cursor:not-allowed;}
+  .pay-status{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.82rem;
+    margin-top:10px;
+  }
+  .pay-status.err{color:#e05c48;}
+  .pay-status.ok{color:var(--sage);}
+</style>
+<!--
+  Cloudflare Web Analytics — free, cookie-less visitor analytics (page
+  views, referrers, where people drop off). Get your token:
+  Cloudflare Dashboard -> Analytics & Logs -> Web Analytics -> Add a site
+  -> paste this domain -> copy the token -> replace YOUR_TOKEN_HERE below.
+  Until you do, this tag is harmless and simply won't send any data.
+-->
+<script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "YOUR_TOKEN_HERE"}'></script>
+</head>
+<body>
+
+<header>
+  <div class="brand">QUICKFIX<span>/</span>DATA</div>
+  <nav>
+    <a href="#services">Services</a>
+    <a href="#tools">Try it live</a>
+    <a href="#contact">Contact</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <div>
+    <span class="eyebrow">Spreadsheets & automation, fixed today</span>
+    <h1>Your messy spreadsheet, <em>sorted by tonight.</em></h1>
+    <p class="sub">I clean up broken spreadsheets, automate repetitive busywork, and build small tools — for small businesses who need it done today, not next month. Usually reply within 1 hour.</p>
+    <div class="cta-row">
+      <a href="#contact" class="btn btn-primary">Get a same-day quote</a>
+      <a href="#tools" class="btn btn-ghost">Try the live tool →</a>
+    </div>
+  </div>
+  <div>
+    <div class="grid-demo" id="gridDemo"></div>
+    <div class="grid-caption">chaos → order, same day</div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section id="services">
+  <div class="section-title">01 — Services & pricing</div>
+  <div class="services">
+    <div class="service">
+      <span class="tag">SPREADSHEET</span>
+      <h3>Clean-up & repair</h3>
+      <p>Broken formulas, duplicate data, messy formatting — turned into something you can actually use.</p>
+      <div class="price">₹499–₹999</div>
+      <div class="turn">Turnaround: 2–4 hours</div>
+      <a href="#contact" class="service-cta" data-plan="Spreadsheet Clean-up & Repair (₹499–₹999)">Get this →</a>
+    </div>
+    <div class="service">
+      <span class="tag">AUTOMATION</span>
+      <h3>Repetitive task automation</h3>
+      <p>Invoices, reminders, data entry, reports — a script that does it so you don't have to.</p>
+      <div class="price">₹999–₹2,999</div>
+      <div class="turn">Turnaround: same day</div>
+      <a href="#contact" class="service-cta" data-plan="Repetitive Task Automation (₹999–₹2,999)">Get this →</a>
+    </div>
+    <div class="service">
+      <span class="tag">WEB</span>
+      <h3>One-page site or form</h3>
+      <p>A simple, clean page or intake form to replace a paper process or a missing web presence.</p>
+      <div class="price">₹1,999–₹4,999</div>
+      <div class="turn">Turnaround: 24 hours</div>
+      <a href="#contact" class="service-cta" data-plan="One-Page Site / Form (₹1,999–₹4,999)">Get this →</a>
+    </div>
+  </div>
+  <p class="sub" style="margin-top:8px; font-size:0.78rem; color:var(--paper-dim);">Checked against real freelance-market rates (Fiverr data-cleaning gigs commonly run $15–50, ≈ ₹1,250–4,200) — these are priced to clearly undercut that.</p>
+  <p class="sub" style="margin-top:22px; color:var(--sage); font-weight:600;">Currently taking on new clients this week — early clients get 15% off their first job.</p>
+</section>
+
+<section id="proof-example">
+  <div class="section-title">02 — What "fixed" actually looks like</div>
+  <div class="before-after">
+    <div class="ba-col">
+      <span class="ba-label ba-before">Before</span>
+      <pre class="ba-pre">Client Name , email, Amount Due,Due Date, Paid?
+ riverside cafe,riverside@x.com, 450 , 07/05/2026,no
+Bloom Salon ,bloom@x.com,220,2026-07-10,YES
+riverside cafe,riverside@x.com,450,07/05/2026,no</pre>
+    </div>
+    <div class="ba-col">
+      <span class="ba-label ba-after">After</span>
+      <pre class="ba-pre">Client,Email,Amount Due,Due Date,Paid
+Riverside Cafe,riverside@x.com,450.00,2026-07-05,No
+Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
+    </div>
+  </div>
+  <p class="sub" style="margin-top:14px;">Spacing fixed, names standardized, duplicate row removed, dates made consistent — the exact kind of mess most spreadsheets accumulate over time.</p>
+</section>
+
+<section id="tools">
+  <div class="section-title">03 — Try it live</div>
+  <p class="sub" style="margin-bottom:20px;">Upload your file, pick what you need, and it processes in full right away. Results stay <strong>locked for 10 minutes</strong> — pay securely online and they unlock the instant your payment is verified. Unpaid sessions are removed automatically.</p>
+
+  <div class="member-bar">
+    <input type="email" id="memberEmailInput" placeholder="Already subscribed? Enter your email to skip payment">
+    <span class="member-status" id="memberStatus"></span>
+  </div>
+
+  <div class="tool-panel plan-panel">
+    <span class="step-label">💳 Monthly plan — unlimited files, no per-file payment</span>
+    <p class="tool-hint" style="margin-bottom:14px;">One flat fee, process as many files as you need for 33 days — cheaper than a full accounting suite, and your first month is discounted. Pay via UPI QR each cycle; you'll get a reminder email a few days before it expires.</p>
+    <div class="plan-row">
+      <div class="plan-price mono">₹599<span>/month</span></div>
+      <input type="email" id="subEmailInput" placeholder="Your email">
+      <button class="btn btn-primary" id="subscribeBtn">Subscribe</button>
+    </div>
+    <p class="tool-hint" id="subFirstMonthNote" style="margin-top:2px;">First month: <strong>₹199</strong> — enter your email above to see your price.</p>
+    <div id="subQrBox" style="display:none; margin-top:14px;">
+      <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
+        <img id="subQrImg" alt="UPI payment QR code" width="180" height="180" style="border:1px solid var(--line, #ccc); border-radius:8px;">
+        <div style="flex:1; min-width:200px;">
+          <p class="mono" style="margin-bottom:4px; font-size:0.8rem; color:var(--paper-dim, #888);">Paying: <b id="subQrPayeeName" style="color:inherit;">—</b> (<span id="subQrPayeeVpa">—</span>)</p>
+          <p class="tool-hint" style="margin-bottom:8px; font-size:0.74rem;">⚠️ Your UPI app will show this exact name when you scan — if it shows anything different, stop and don't pay.</p>
+          <p class="mono" style="margin-bottom:6px;">Amount: <b id="subQrAmount">₹0</b></p>
+          <a id="subUpiAppLink" href="#" class="tool-hint" style="display:inline-block; margin-bottom:12px;">📱 Open directly in a UPI app (on phone)</a>
+          <input type="text" id="subUtrInput" placeholder="UTR / reference number after paying" style="width:100%; margin-bottom:8px;">
+          <button class="btn btn-primary" id="subSubmitUtrBtn">I've paid — submit reference number</button>
+        </div>
+      </div>
+    </div>
+    <div class="pay-status" id="subStatus"></div>
+  </div>
+
+  <div class="tool-panel">
+    <span class="step-label">Step 1 — Upload a CSV or Excel file</span>
+    <div class="dropzone" id="dropzone">
+      <p>Drop a .csv or .xlsx here, or click to browse.<br>Needs at least a name/client column and an amount column — email, date, and paid-status columns are optional.</p>
+      <div class="filename" id="filename"></div>
+      <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+    </div>
+    <p class="tool-hint">No file handy? <a href="#" id="sampleLink">Use a sample messy file instead</a>.</p>
+
+    <p class="tool-hint" style="margin-top:10px;">Working from a handwritten notebook instead? <a href="#" id="photoModeLink">📷 Upload a photo of the page</a></p>
+    <div id="photoBox" style="display:none; margin-top:10px;">
+      <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" capture="environment">
+      <div class="filename" id="photoFilename"></div>
+      <p class="tool-hint" style="font-size:0.74rem;">A photo is read by AI into a preview you can check and fix before anything is priced. Works best with clear lighting and a flat page.</p>
+    </div>
+
+    <div id="photoReviewBox" style="display:none; margin-top:14px; padding:14px; border:1px dashed var(--line, #ccc); border-radius:8px;">
+      <span class="step-label">👀 Check what was read from your photo</span>
+      <p class="tool-hint" style="margin-bottom:8px;">AI transcription of a handwritten page isn't always perfect — fix anything wrong below before continuing. Nothing is priced or charged yet.</p>
+      <textarea id="photoReviewTextarea" style="width:100%; min-height:160px; font-family:monospace; font-size:0.82rem;"></textarea>
+      <button class="btn btn-primary" id="photoReviewConfirmBtn" style="margin-top:8px;">Looks right — continue</button>
+    </div>
+
+    <span class="step-label" style="margin-top:28px; display:block;">Step 2 — Choose what to run</span>
+    <div class="tool-options">
+      <label class="topt active" data-opt="clean">
+        <input type="checkbox" checked> <span class="otitle">Clean the data</span>
+        <div class="odesc">Fix spacing, formats, remove duplicate rows.</div>
+      </label>
+      <label class="topt active" data-opt="invoice">
+        <input type="checkbox" checked> <span class="otitle">Generate invoices</span>
+        <div class="odesc">One invoice per unpaid client.</div>
+      </label>
+      <label class="topt active" data-opt="reminder">
+        <input type="checkbox" checked> <span class="otitle">Draft reminders</span>
+        <div class="odesc">Overdue payment emails, ready to send.</div>
+      </label>
+    </div>
+
+    <div class="gst-row">
+      <label><input type="checkbox" id="gstToggle"> Add GST to invoices</label>
+      <input type="number" id="gstPercent" placeholder="18" min="0" max="28" step="0.5" disabled>
+      <span class="tool-hint" style="margin:0;">% (standard India GST slabs: 5, 12, 18, 28)</span>
+    </div>
+
+    <button class="btn btn-primary" id="runBtn" disabled>Process it</button>
+    <button class="btn btn-ghost" id="resetBtn">Reset</button>
+    <div class="tool-error" id="errorMsg"></div>
+  </div>
+
+  <div class="tool-panel" id="lockedPanel" style="display:none;">
+    <div class="locked-head">
+      <div>
+        <h3 style="margin-bottom:4px;">🔒 Your file is processed and ready</h3>
+        <p class="sub" style="margin-bottom:0;" id="lockedSummary"></p>
+      </div>
+      <div class="timer-box">
+        <span class="timer-label">Time left</span>
+        <span class="timer-value" id="timerValue">10:00</span>
+      </div>
+    </div>
+
+    <div id="optionLocks" class="option-locks"></div>
+
+    <div class="unlock-cta">
+      <div id="priceBreakdown" class="price-breakdown"></div>
+      <div class="price-line">Total: <span class="amt" id="priceAmt">₹0</span></div>
+      <p class="sub" style="margin-bottom:10px;">Scan the QR with any UPI app, pay the <strong>exact amount shown</strong> (a few extra paise are added on purpose — it's how your payment gets matched), then enter the UTR/reference number your app gives you.</p>
+      <button class="btn btn-primary pay-btn" id="showQrBtn">Show payment QR →</button>
+      <div id="qrBox" style="display:none; margin-top:14px;">
+        <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
+          <img id="qrImg" alt="UPI payment QR code" width="180" height="180" style="border:1px solid var(--line, #ccc); border-radius:8px;">
+          <div style="flex:1; min-width:200px;">
+            <p class="mono" style="margin-bottom:4px; font-size:0.8rem; color:var(--paper-dim, #888);">Paying: <b id="qrPayeeName" style="color:inherit;">—</b> (<span id="qrPayeeVpa">—</span>)</p>
+            <p class="tool-hint" style="margin-bottom:8px; font-size:0.74rem;">⚠️ Your UPI app will show this exact name when you scan — if it shows anything different, stop and don't pay.</p>
+            <p class="mono" style="margin-bottom:6px;">Amount: <b id="qrAmount">₹0</b></p>
+            <a id="upiAppLink" href="#" class="tool-hint" style="display:inline-block; margin-bottom:12px;">📱 Open directly in a UPI app (on phone)</a>
+            <input type="text" id="utrInput" placeholder="UTR / reference number after paying" style="width:100%; margin-bottom:8px;">
+            <button class="btn btn-primary" id="submitUtrBtn">I've paid — submit reference number</button>
+          </div>
+        </div>
+      </div>
+      <div class="pay-status" id="payStatus"></div>
+      <p class="tool-hint" style="margin-top:14px;">Prefer bank transfer / cash instead? <a href="#contact" id="manualPayLink">Message me directly</a> and I'll unlock it by hand once confirmed.</p>
+
+      <p class="tool-hint" style="margin-top:18px; border-top:1px dashed var(--line, #ccc); padding-top:12px;">
+        <a href="#" id="adminTestToggle" style="opacity:0.6;">🔧 Testing as the admin?</a>
+      </p>
+      <div id="adminTestBox" style="display:none; margin-top:8px;">
+        <input type="password" id="adminTestKey" placeholder="Admin key" style="width:100%; margin-bottom:8px;">
+        <button class="btn" id="adminTestBtn" style="font-size:0.85rem;">Unlock free — this is a test, not a real payment</button>
+        <p class="tool-hint" style="margin-top:6px; font-size:0.72rem;">This still needs your real admin key to work, is rate-limited the same as everything else in the admin panel, and every use is permanently logged as an admin test — it never gets counted as revenue.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="tool-panel" id="expiredPanel" style="display:none;">
+    <p class="sub" style="margin-bottom:0; color:var(--err,#b5493a); font-weight:600;">⏱ Time's up — this session's data has been removed for security. Upload again once payment is arranged, and it'll reprocess in seconds.</p>
+  </div>
+
+  <div class="tool-panel tool-results" id="resultsPanel" style="display:none;">
+    <h3>Unlocked results</h3>
+    <p class="sub" style="margin-bottom:0;" id="summaryLine"></p>
+    <div id="resultBlocks"></div>
+
+    <div class="ca-referral-box" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line);">
+      <span class="step-label">📋 Need a CA for GST filing?</span>
+      <p class="tool-hint" style="margin-bottom:8px;">Now that your data's clean, the natural next step is filing. I can connect you with a CA I work with.</p>
+      <button class="btn" id="caReferralBtn" style="font-size:0.85rem;">Get a CA referral</button>
+      <div id="caReferralResult" style="margin-top:8px; font-size:0.85rem;"></div>
+    </div>
+
+    <div class="ask-data-box" style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line);">
+      <span class="step-label">💬 Ask about your data</span>
+      <p class="tool-hint" style="margin-bottom:10px;">e.g. "who hasn't paid yet?" or "what's the total overdue amount?"</p>
+      <div class="chat-input-row" style="border-top:none; padding:0;">
+        <input type="text" id="askDataInput" placeholder="Ask a question…">
+        <button id="askDataBtn">Ask</button>
+      </div>
+      <div class="admin-result" id="askDataResult"></div>
+    </div>
+  </div>
+</section>
+
+
+
+<section>
+  <div class="section-title">04 — Why it's low-risk for you</div>
+  <div class="proof">
+    <div class="proof-item">
+      <div class="num">Pay after</div>
+      <div class="lbl">See the fix working before you pay in full</div>
+    </div>
+    <div class="proof-item">
+      <div class="num">No contract</div>
+      <div class="lbl">One job, one price, no subscriptions or lock-in</div>
+    </div>
+    <div class="proof-item">
+      <div class="num">Same day</div>
+      <div class="lbl">Most jobs delivered within hours, not weeks</div>
+    </div>
+  </div>
+</section>
+
+<section id="contact">
+  <div class="contact">
+    <div style="flex:1; min-width:260px;">
+      <h2>Have a spreadsheet or task eating your time?</h2>
+      <p style="margin-top:10px; opacity:0.85; font-size:0.9rem; max-width:40ch;">Fill this in and it'll open your email app with everything ready to send. I reply fast — once we agree on the job, I'll share my UPI ID so you can pay after you see it working.</p>
+    </div>
+    <form class="contact-form" id="contactForm">
+      <label for="cName" class="sr-only">Your name</label>
+      <input type="text" id="cName" placeholder="Your name" aria-label="Your name" required>
+      <label for="cEmail" class="sr-only">Your email</label>
+      <input type="email" id="cEmail" placeholder="Your email (so I can reply)" aria-label="Your email" required>
+      <label for="cBiz" class="sr-only">Business name</label>
+      <input type="text" id="cBiz" placeholder="Business name" aria-label="Business name">
+      <label for="cMsg" class="sr-only">What do you need fixed or automated?</label>
+      <textarea id="cMsg" placeholder="What do you need fixed or automated?" aria-label="What do you need fixed or automated?" required></textarea>
+      <button type="submit" class="btn btn-primary" id="contactSubmitBtn">Send inquiry →</button>
+      <div class="contact-note" id="contactNote">Sent directly — I reply within a few hours, usually much sooner.</div>
+    </form>
+  </div>
+</section>
+
+<button class="chat-bubble" id="chatBubble" aria-label="Open chat">💬</button>
+<div class="chat-panel" id="chatPanel">
+  <div class="chat-head">
+    <div>
+      <strong>QuickFix Data</strong>
+      <span>Usually replies within 1 hour</span>
+    </div>
+    <button class="chat-close" id="chatClose" aria-label="Close chat">✕</button>
+  </div>
+  <div class="chat-body" id="chatBody">
+    <div class="chat-msg bot">Hi! Quick question, or want to tell me about a file/task? Pick one below or just type.</div>
+    <div class="chat-quick-replies" id="chatQuickReplies">
+      <button data-q="pricing" type="button">💰 How much does it cost?</button>
+      <button data-q="payment" type="button">💳 How do I pay?</button>
+      <button data-q="safety" type="button">🔒 Is my data safe?</button>
+      <button data-q="speed" type="button">⏱ How fast is it?</button>
+    </div>
+  </div>
+  <div class="chat-email-row">
+    <input type="email" id="chatEmail" placeholder="Your email (so I can reply)">
+  </div>
+  <div class="chat-input-row">
+    <input type="text" id="chatInput" placeholder="Type your message…">
+    <button id="chatSend">Send</button>
+  </div>
+</div>
+
+<footer>
+  QuickFix Data — spreadsheets, automation, small web tools. Chennai.
+  <div style="margin-top:8px;"><a href="#privacy" style="color:inherit;">Privacy &amp; data policy</a></div>
+</footer>
+
+<section id="privacy" style="max-width:640px; margin:60px auto; padding:0 20px 60px;">
+  <h3>Privacy &amp; data policy</h3>
+  <p class="sub">
+    Files you upload are processed in memory to generate your results and are automatically deleted after 10 minutes (longer if a payment is in progress, to give time to confirm it), whether or not you pay. Nothing is kept longer than that unless you specifically set up a recurring subscription, in which case only the sheet link and your email are stored so the weekly job can run — no financial data is retained between runs beyond what's needed to email you the latest result. A permanent record of each confirmed <em>payment</em> (date, amount, email, UPI reference number) is kept for accounting/GST purposes — this does not include your file contents.
+  </p>
+  <p class="sub">
+    Client names, emails, and amounts in your file are used only to generate the cleaned data, invoices, and reminders you asked for. They are never sold, shared with third parties, or used for anything beyond completing your order. Payment is made directly to our UPI ID — no card or bank login details are ever entered on or seen by this site.
+  </p>
+  <p class="sub">
+    If you use the "ask your data" feature, a summarized version of your unlocked data (client names, amounts, dates) is sent to Anthropic's API to generate an answer, under the same terms — used only to answer your question, not stored by this site afterward.
+  </p>
+  <p class="sub">Questions about your data? Use the chat button in the corner or the contact form above.</p>
+</section>
+
+<script>
+  const grid = document.getElementById('gridDemo');
+  const total = 42;
+  const cells = [];
+  for(let i=0;i<total;i++){
+    const c = document.createElement('div');
+    c.className = 'cell';
+    grid.appendChild(c);
+    cells.push(c);
+  }
+  // resolve from random noise to an intentional pattern (diagonal + accents)
+  function settle(){
+    cells.forEach((c,i)=>{
+      c.classList.remove('on','sage');
+      const row = Math.floor(i/6), col = i%6;
+      if((row+col) % 7 === 0){ setTimeout(()=>c.classList.add('on'), row*90);}
+      else if(col === row - 1){ setTimeout(()=>c.classList.add('sage'), row*90 + 40);}
+    });
+  }
+  settle();
+  setInterval(settle, 5000);
+
+  const contactForm = document.getElementById('contactForm');
+  document.querySelectorAll('.service-cta').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const plan = btn.getAttribute('data-plan');
+      const msgField = document.getElementById('cMsg');
+      if (msgField && !msgField.value) {
+        msgField.value = `I'd like: ${plan}\n\nWhat I need done: `;
+      }
+    });
+  });
+  contactForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('cName').value.trim();
+    const email = document.getElementById('cEmail').value.trim();
+    const biz = document.getElementById('cBiz').value.trim();
+    const msg = document.getElementById('cMsg').value.trim();
+    const submitBtn = document.getElementById('contactSubmitBtn');
+    const note = document.getElementById('contactNote');
+    const fullMessage = `Name: ${name}\nBusiness: ${biz || '—'}\n\nWhat I need:\n${msg}`;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Sending…';
+    note.textContent = '';
+    note.className = 'contact-note';
+
+    // Primary path: send straight to the server, same as the chat widget.
+    // This used to ONLY try `window.location.href = 'mailto:...'`, which
+    // silently does nothing on a lot of mobile browsers and in-app
+    // webviews (Instagram/Facebook/LinkedIn browsers block it outright,
+    // and plenty of desktop browsers have no default mail client
+    // configured) — that's the "it just sits there" bug. This tries a
+    // real HTTP request first and only falls back to mailto/clipboard if
+    // that genuinely fails, instead of relying on mailto as the only path.
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'contact_message', message: fullMessage, email }),
+      });
+      const data = await res.json();
+      if (res.ok && data.sent) {
+        submitBtn.textContent = 'Sent ✓';
+        note.textContent = "Got it — I'll reply to your email within a few hours.";
+        note.className = 'contact-note ok';
+        contactForm.reset();
+        return;
+      }
+      throw new Error(data.reason || 'send-failed');
+    } catch {
+      // Fallback: try mailto (works for people with a mail app configured)
+      // AND always show a guaranteed-working copy button, so the message
+      // reaches someone even when mailto silently fails.
+      const subject = encodeURIComponent(`Inquiry from ${name}${biz ? ' (' + biz + ')' : ''}`);
+      const mailBody = encodeURIComponent(`${fullMessage}\n\nReply to: ${email}`);
+      const mailtoUrl = `mailto:quickfixdata@gmail.com?subject=${subject}&body=${mailBody}`;
+
+      note.innerHTML = `Couldn't send automatically — <a href="${mailtoUrl}">try opening your email app</a>, or copy your message below and send it any way you like:`;
+      note.className = 'contact-note err';
+
+      const copyBox = document.createElement('div');
+      copyBox.style.marginTop = '8px';
+      copyBox.innerHTML = `<textarea readonly style="width:100%; min-height:70px; font-size:0.8rem;">${fullMessage}\n\nReply to: ${email}\nSend to: quickfixdata@gmail.com</textarea>
+        <button type="button" id="copyContactBtn" style="margin-top:6px;">Copy message</button>`;
+      note.after(copyBox);
+      document.getElementById('copyContactBtn').addEventListener('click', () => {
+        navigator.clipboard.writeText(copyBox.querySelector('textarea').value);
+        document.getElementById('copyContactBtn').textContent = 'Copied ✓';
+      });
+
+      submitBtn.textContent = 'Send inquiry →';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+
+<script>
+  const SAMPLE_CSV = `Client Name , email, Amount Due,Due Date, Paid?
+ Riverside Cafe,riverside@example.com, 450 , 07/05/2026,no
+Bloom Salon ,bloom@example.com,220,2026-07-10,YES
+Hartline Plumbing,hartline@example.com , 780,05-07-2026,No
+riverside cafe,riverside@example.com,450,07/05/2026,no
+Bloom Salon,bloom@example.com,220,2026-07-10,yes
+ Kavi Textiles,kavi@example.com,1300, 7/1/2026 ,no`;
+
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const filenameEl = document.getElementById('filename');
+  const runBtn = document.getElementById('runBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const errorMsg = document.getElementById('errorMsg');
+  const resultsPanel = document.getElementById('resultsPanel');
+  const summaryLine = document.getElementById('summaryLine');
+  const resultBlocks = document.getElementById('resultBlocks');
+  const sampleLink = document.getElementById('sampleLink');
+
+  let rawCsvText = null;
+  let fileLoaded = false;
+  let pendingPhoto = null; // { base64, mediaType } when in photo mode instead of CSV mode
+
+  document.querySelectorAll('.topt').forEach(opt => {
+    opt.addEventListener('click', (e) => {
+      if (e.target.tagName !== 'INPUT') {
+        const cb = opt.querySelector('input');
+        cb.checked = !cb.checked;
+      }
+      opt.classList.toggle('active', opt.querySelector('input').checked);
+    });
+  });
+
+  const gstToggle = document.getElementById('gstToggle');
+  const gstPercentInput = document.getElementById('gstPercent');
+  gstToggle.addEventListener('change', () => {
+    gstPercentInput.disabled = !gstToggle.checked;
+    if (gstToggle.checked && !gstPercentInput.value) gstPercentInput.value = '18';
+  });
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('drag');
+    if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) loadFile(e.target.files[0]);
+  });
+  sampleLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    rawCsvText = SAMPLE_CSV;
+    pendingPhoto = null;
+    fileLoaded = true;
+    filenameEl.textContent = 'sample_messy_orders.csv (demo data loaded)';
+    runBtn.disabled = false;
+    errorMsg.textContent = '';
+  });
+
+  // --- Photo-to-data (OCR via Claude vision) ---
+  const photoModeLink = document.getElementById('photoModeLink');
+  const photoBox = document.getElementById('photoBox');
+  const photoInput = document.getElementById('photoInput');
+  const photoFilenameEl = document.getElementById('photoFilename');
+  const MAX_PHOTO_BYTES = 6.5 * 1024 * 1024; // matches worker.js's base64 cap with room for encoding overhead
+
+  photoModeLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    photoBox.style.display = photoBox.style.display === 'none' ? 'block' : 'none';
+  });
+
+  photoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      errorMsg.textContent = 'Please choose a JPEG, PNG, or WebP photo.';
+      return;
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      errorMsg.textContent = 'That photo is too large — try a lower-resolution shot, or crop to just the ledger page.';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      // reader.result is a data: URL — strip the "data:image/...;base64," prefix
+      const base64 = reader.result.split(',')[1];
+      pendingPhoto = { base64, mediaType: file.type };
+      rawCsvText = null;
+      fileLoaded = true;
+      photoFilenameEl.textContent = `${file.name} (will be read by AI)`;
+      filenameEl.textContent = '';
+      runBtn.disabled = false;
+      errorMsg.textContent = '';
+    };
+    reader.onerror = () => { errorMsg.textContent = 'Could not read that photo — try again.'; };
+    reader.readAsDataURL(file);
+  });
+
+  // Matches the backend's MAX_CSV_BYTES/MAX_CSV_ROWS — see worker.js for
+  // the actual memory measurement behind these numbers (Cloudflare
+  // Workers' 128MB isolate limit, benchmarked, not guessed).
+  const MAX_FILE_BYTES = 8 * 1024 * 1024; // 8MB
+  const MAX_FILE_ROWS = 60000;
+
+  function loadFile(file) {
+    const nameLower = file.name.toLowerCase();
+    const isCsv = nameLower.endsWith('.csv');
+    const isExcel = nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls');
+
+    if (!isCsv && !isExcel) {
+      errorMsg.textContent = 'Please upload a .csv or .xlsx file.';
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      errorMsg.textContent = `File is too large (max 8MB — that's roughly 60,000+ rows for a typical export). Message me directly and I'll handle it by hand, or split it into smaller files.`;
+      return;
+    }
+
+    if (isCsv) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        rawCsvText = e.target.result;
+        pendingPhoto = null;
+        fileLoaded = true;
+        filenameEl.textContent = file.name;
+        photoFilenameEl.textContent = '';
+        runBtn.disabled = false;
+        errorMsg.textContent = '';
+      };
+      reader.onerror = () => { errorMsg.textContent = 'Could not read that file.'; };
+      reader.readAsText(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[firstSheetName];
+          rawCsvText = XLSX.utils.sheet_to_csv(sheet);
+          pendingPhoto = null;
+          fileLoaded = true;
+          filenameEl.textContent = file.name;
+          photoFilenameEl.textContent = '';
+          runBtn.disabled = false;
+          errorMsg.textContent = '';
+        } catch (err) {
+          errorMsg.textContent = 'Could not read that Excel file — message me directly and I\'ll handle it by hand.';
+        }
+      };
+      reader.onerror = () => { errorMsg.textContent = 'Could not read that file.'; };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
+  resetBtn.addEventListener('click', () => {
+    rawCsvText = null;
+    pendingPhoto = null;
+    fileLoaded = false;
+    filenameEl.textContent = '';
+    photoFilenameEl.textContent = '';
+    fileInput.value = '';
+    photoInput.value = '';
+    runBtn.disabled = true;
+    errorMsg.textContent = '';
+    resultsPanel.style.display = 'none';
+  });
+
+  // Note: file parsing, cleaning, invoice/reminder generation, and payment
+  // verification are all enforced server-side by the Worker (see the
+  // click handlers below). Nothing in this browser code can be edited
+  // to unlock results without a verified payment, since the check lives
+  // on the server, not here.
+
+  function downloadBlob(text, filename, type='text/plain') {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  let currentGmailLinks = { invoices: [], reminders: [] };
+
+  function renderBlock(title, content, filename, gmailLinksForBlock) {
+    const block = document.createElement('div');
+    block.className = 'result-block';
+    block.innerHTML = `
+      <div class="result-head">
+        <span>${title}</span>
+        <button>Download</button>
+      </div>
+      ${content ? `<pre>${content.replace(/</g,'&lt;')}</pre>` : `<div class="empty-note">Nothing to show for this option.</div>`}
+    `;
+    if (content) {
+      block.querySelector('button').addEventListener('click', () => downloadBlob(content, filename));
+    } else {
+      block.querySelector('button').style.display = 'none';
+    }
+    if (gmailLinksForBlock && gmailLinksForBlock.length) {
+      const gmailRow = document.createElement('div');
+      gmailRow.style.cssText = 'padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px;';
+      gmailLinksForBlock.forEach((link, i) => {
+        const a = document.createElement('a');
+        a.href = link;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.className = 'btn btn-ghost';
+        a.style.cssText = 'font-size:0.78rem; padding:6px 12px;';
+        a.textContent = `✉ Send #${i + 1} via Gmail`;
+        gmailRow.appendChild(a);
+      });
+      block.appendChild(gmailRow);
+    }
+    resultBlocks.appendChild(block);
+  }
+
+  function renderTallyButton() {
+    const block = document.createElement('div');
+    block.className = 'result-block';
+    block.innerHTML = `
+      <div class="result-head"><span>📑 Tally import file</span></div>
+      <div style="padding:16px;">
+        <p class="tool-hint" style="margin-bottom:10px;">Tally doesn't have a real API, but it can import this XML directly: Gateway of Tally → Import Data. Validate one test import against your Tally setup first — ledger names need to match what's already in your company file.</p>
+        <button class="btn btn-primary" id="tallyExportBtn" style="font-size:0.85rem; padding:10px 18px;">Download Tally XML</button>
+      </div>
+    `;
+    resultBlocks.appendChild(block);
+
+    document.getElementById('tallyExportBtn').addEventListener('click', async () => {
+      const companyName = prompt('Your company name as it appears in Tally:') || '';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'export_tally_xml', sessionId: currentSessionId, companyName }),
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(`Could not export: ${data.error}`); return; }
+        const blob = new Blob([data.xml], { type: 'text/xml' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'tally-import.xml';
+        a.click();
+      } catch {
+        alert('Could not reach the server for Tally export.');
+      }
+    });
+  }
+
+  function renderSafetyReport(report, anomalies) {
+    if (!report) return;
+    const total = report.totalInputRows || 1;
+    const segments = [
+      ['Processed', report.processedRows, '#0F6E5C'],
+      ['Malformed/suspicious', report.skippedMalformed, '#c0392b'],
+      ['Missing data', report.skippedMissingData, '#d9a621'],
+      ['Duplicate', report.skippedDuplicate, '#999'],
+    ];
+    const barsHtml = segments.map(([label, count, color]) => {
+      const pct = ((count / total) * 100).toFixed(1);
+      return count > 0 ? `<div style="width:${pct}%; background:${color};" title="${label}: ${count}"></div>` : '';
+    }).join('');
+
+    const statusOk = report.skippedMalformed === 0 && (!anomalies || anomalies.length === 0);
+    const block = document.createElement('div');
+    block.className = 'result-block';
+    block.innerHTML = `
+      <div class="result-head"><span>📊 Data Processing &amp; Safety Report</span></div>
+      <div style="padding:16px;">
+        <div style="display:flex; height:22px; border-radius:5px; overflow:hidden; margin-bottom:10px;">${barsHtml}</div>
+        <div style="font-size:0.8rem; color:#666; margin-bottom:14px;">
+          <span style="color:#0F6E5C;">■</span> Processed ${report.processedRows} &nbsp;
+          <span style="color:#c0392b;">■</span> Malformed ${report.skippedMalformed} &nbsp;
+          <span style="color:#d9a621;">■</span> Missing data ${report.skippedMissingData} &nbsp;
+          <span style="color:#999;">■</span> Duplicate ${report.skippedDuplicate}
+        </div>
+        <div style="font-size:0.85rem; line-height:1.7;">
+          Formula-injection attempts neutralized: <b>${report.formulaInjectionNeutralized}</b><br>
+          Malware/binary content scan: <b>PASSED</b><br>
+          Unusual-amount check: <b>${report.anomalyCheckPerformed ? `Performed (${(anomalies||[]).length} flagged)` : 'Not enough data (need 4+ rows)'}</b>
+        </div>
+        <div style="margin-top:12px; font-weight:700; color:${statusOk ? '#0F6E5C' : '#c0392b'};">
+          ${statusOk ? '✅ ALL CLEAR' : '⚠ REVIEW RECOMMENDED'}
+        </div>
+      </div>
+    `;
+    resultBlocks.appendChild(block);
+  }
+
+  const WORKER_URL = 'https://quickfixdata.quickfixdata.workers.dev';
+
+  const lockedPanel = document.getElementById('lockedPanel');
+  const expiredPanel = document.getElementById('expiredPanel');
+  const lockedSummary = document.getElementById('lockedSummary');
+  const timerValue = document.getElementById('timerValue');
+  const optionLocks = document.getElementById('optionLocks');
+
+  const OPT_META = {
+    clean: { icon: '🧹', title: 'Cleaned data' },
+    invoice: { icon: '🧾', title: 'Invoices' },
+    reminder: { icon: '📩', title: 'Reminders' },
+  };
+
+  let currentSessionId = null;
+  let currentPrice = 0;
+  let countdownInterval = null;
+  let pollInterval = null;
+  let chosenOpts = {};
+
+  function renderPriceBreakdown(breakdown) {
+    const el = document.getElementById('priceBreakdown');
+    if (!breakdown || !breakdown.items.length) { el.innerHTML = ''; return; }
+    let html = breakdown.items.map((i) => `<div class="pb-row"><span>${i.label}</span><span>₹${i.price}</span></div>`).join('');
+    if (breakdown.discount > 0) {
+      html += `<div class="pb-row pb-discount"><span>Bundle discount (${breakdown.discountPct}% off, all three)</span><span>−₹${breakdown.discount}</span></div>`;
+    }
+    el.innerHTML = html;
+  }
+
+  function renderOptionLocks(unlocked) {
+    optionLocks.innerHTML = '';
+    Object.keys(chosenOpts).filter(k => chosenOpts[k]).forEach((key) => {
+      const meta = OPT_META[key];
+      const isUnlocked = unlocked[key];
+      const card = document.createElement('div');
+      card.className = 'opt-lock-card ' + (isUnlocked ? 'unlocked' : 'locked');
+      card.innerHTML = `
+        <span class="ol-icon">${isUnlocked ? '✅' : '🔒'}</span>
+        <span class="ol-title">${meta.icon} ${meta.title}</span>
+        <span class="ol-status">${isUnlocked ? 'Unlocked' : 'Locked — pending payment'}</span>
+      `;
+      optionLocks.appendChild(card);
+    });
+  }
+
+  function stopTimers() {
+    clearInterval(countdownInterval);
+    clearInterval(pollInterval);
+  }
+
+  function startCountdown(seconds) {
+    let remaining = seconds;
+    const tick = () => {
+      const m = Math.floor(remaining / 60).toString().padStart(2, '0');
+      const s = (remaining % 60).toString().padStart(2, '0');
+      timerValue.textContent = `${m}:${s}`;
+      timerValue.classList.toggle('urgent', remaining <= 60);
+      if (remaining <= 0) {
+        clearInterval(countdownInterval);
+        onSessionExpired();
+      }
+      remaining--;
+    };
+    tick();
+    countdownInterval = setInterval(tick, 1000);
+    startCountdown._remaining = () => remaining;
+    startCountdown._extend = (extraSeconds) => { remaining += extraSeconds; };
+  }
+
+  function onSessionExpired() {
+    stopTimers();
+    lockedPanel.style.display = 'none';
+    resultsPanel.style.display = 'none';
+    expiredPanel.style.display = 'block';
+    expiredPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    currentSessionId = null;
+  }
+
+  function startPolling(sessionId) {
+    pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check', sessionId }),
+        });
+        const data = await res.json();
+
+        if (data.status === 'expired') {
+          onSessionExpired();
+          return;
+        }
+
+        renderOptionLocks(data.unlocked);
+        if (data.gmailLinks) currentGmailLinks = data.gmailLinks;
+
+        if (data.status === 'partially-unlocked' || data.status === 'fully-unlocked') {
+          resultBlocks.innerHTML = '';
+          summaryLine.textContent = `${data.totalRows} unique row(s) — showing unlocked results below.`;
+          if (data.cleanCsv !== undefined) renderBlock('clean_orders.csv', data.cleanCsv, 'clean_orders.csv');
+          if (data.invoices !== undefined) {
+            renderBlock(`invoices (${data.invoices.length})`, data.invoices.join('\n\n' + '-'.repeat(50) + '\n\n'), 'invoices.txt', currentGmailLinks.invoices);
+            renderTallyButton();
+          }
+          if (data.reminders !== undefined) renderBlock(`reminders (${data.reminders.length})`, data.reminders.join('\n\n' + '-'.repeat(50) + '\n\n'), 'reminders.txt', currentGmailLinks.reminders);
+          renderSafetyReport(data.report, data.anomalies);
+          resultsPanel.style.display = 'block';
+        }
+
+        if (data.status === 'fully-unlocked') {
+          stopTimers();
+          lockedPanel.style.display = 'none';
+        }
+      } catch (e) {
+        // silent — next poll will retry
+      }
+    }, 4000);
+  }
+
+  async function submitForProcessing(csvText, opts, sourceIsPhoto) {
+    runBtn.disabled = true;
+    runBtn.textContent = sourceIsPhoto ? 'Processing…' : 'Processing…';
+    errorMsg.textContent = '';
+    expiredPanel.style.display = 'none';
+    resultsPanel.style.display = 'none';
+
+    try {
+      const memberEmail = document.getElementById('memberEmailInput').value.trim() || undefined;
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'process', csvText, opts, memberEmail }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'processing-error');
+
+      currentSessionId = result.sessionId;
+      currentPrice = result.price || 0;
+
+      if (result.isMember) {
+        // Active monthly subscriber — results are already unlocked, no
+        // payment step needed at all.
+        summaryLine.textContent = `${result.totalRows} unique row(s) processed — unlocked instantly with your monthly plan.`;
+        resultBlocks.innerHTML = '';
+        if (result.cleanCsv !== undefined) renderBlock('clean_orders.csv', result.cleanCsv, 'clean_orders.csv');
+        if (result.invoices !== undefined) { renderBlock(`invoices (${result.invoices.length})`, result.invoices.join('\n\n' + '-'.repeat(50) + '\n\n'), 'invoices.txt'); renderTallyButton(); }
+        if (result.reminders !== undefined) renderBlock(`reminders (${result.reminders.length})`, result.reminders.join('\n\n' + '-'.repeat(50) + '\n\n'), 'reminders.txt');
+        renderSafetyReport(result.report, result.anomalies);
+        resultsPanel.style.display = 'block';
+        resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
+      lockedSummary.textContent = `${result.totalRows} unique row(s) processed. Pay to unlock below.`;
+      document.getElementById('priceAmt').textContent = `₹${currentPrice}`;
+      renderPriceBreakdown(result.priceBreakdown);
+      renderOptionLocks({ clean: false, invoice: false, reminder: false });
+
+      lockedPanel.style.display = 'block';
+      lockedPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      startCountdown(result.expiresIn);
+      startPolling(result.sessionId);
+    } catch (err) {
+      errorMsg.textContent = err.message === 'missing-columns'
+        ? "Couldn't find a name and amount column in this file — message me your file directly and I'll fix it by hand instead."
+        : err.message === 'file-too-large'
+        ? 'That file is too large to process here (max 8MB) — message me directly and I\'ll handle it by hand, or split it up.'
+        : err.message === 'too-many-rows'
+        ? 'That file has too many rows to process here (max 60,000) — message me directly and I\'ll handle it by hand, or split it up.'
+        : err.message === 'not-valid-text'
+        ? "This doesn't look like a valid CSV file — please double-check and try again, or message me directly."
+        : 'Could not reach the processing server — message me directly and I\'ll take a look.';
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = pendingPhoto ? 'Read photo & process' : 'Process it';
+    }
+  }
+
+  // --- Photo review step: OCR is never perfect, especially on a
+  // handwritten page — so a photo upload transcribes to a REVIEWABLE,
+  // EDITABLE preview first (no charge, no session yet), and only goes
+  // through the normal process() flow once the client confirms it looks
+  // right, or fixes anything the model got wrong. ---
+  const photoReviewBox = document.getElementById('photoReviewBox');
+  const photoReviewTextarea = document.getElementById('photoReviewTextarea');
+  const photoReviewConfirmBtn = document.getElementById('photoReviewConfirmBtn');
+  let photoReviewOpts = null;
+
+  async function transcribeAndReview(opts) {
+    runBtn.disabled = true;
+    runBtn.textContent = 'Reading photo…';
+    errorMsg.textContent = '';
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'transcribe_photo', imageBase64: pendingPhoto.base64, mediaType: pendingPhoto.mediaType }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'transcription-failed');
+
+      photoReviewOpts = opts;
+      photoReviewTextarea.value = data.csv;
+      photoReviewBox.style.display = 'block';
+      photoReviewBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+      errorMsg.textContent = err.message === 'no-table-found'
+        ? "Couldn't find a table or ledger in that photo — try a clearer, flatter shot, or message me directly."
+        : err.message === 'image-too-large'
+        ? 'That photo is too large — try a lower resolution or crop to just the ledger page.'
+        : err.message === 'photo-processing-not-configured' || err.message === 'unexpected-format' || err.message === 'transcription-failed'
+        ? "Couldn't read that photo right now — message me directly and I'll process it by hand."
+        : 'Could not reach the processing server — message me directly and I\'ll take a look.';
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = 'Read photo & process';
+    }
+  }
+
+  photoReviewConfirmBtn.addEventListener('click', () => {
+    const editedCsv = photoReviewTextarea.value;
+    photoReviewBox.style.display = 'none';
+    submitForProcessing(editedCsv, photoReviewOpts, true);
+  });
+
+  runBtn.addEventListener('click', async () => {
+    if (!fileLoaded) return;
+    chosenOpts = {
+      clean: document.querySelector('[data-opt=clean] input').checked,
+      invoice: document.querySelector('[data-opt=invoice] input').checked,
+      reminder: document.querySelector('[data-opt=reminder] input').checked,
+      gstPercent: gstToggle.checked ? parseFloat(gstPercentInput.value) || 0 : 0,
+    };
+
+    if (pendingPhoto) {
+      await transcribeAndReview(chosenOpts);
+    } else {
+      await submitForProcessing(rawCsvText, chosenOpts, false);
+    }
+  });
+
+  const payStatus = document.getElementById('payStatus');
+  const qrBox = document.getElementById('qrBox');
+  const showQrBtn = document.getElementById('showQrBtn');
+
+  showQrBtn.addEventListener('click', async () => {
+    if (!currentSessionId) return;
+    showQrBtn.disabled = true;
+    showQrBtn.textContent = 'Loading…';
+    payStatus.textContent = '';
+    payStatus.className = 'pay-status';
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_payment_info', sessionId: currentSessionId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'payment-info-failed');
+
+      document.getElementById('qrImg').src = data.qrImageUrl;
+      document.getElementById('qrPayeeName').textContent = data.payeeName || '—';
+      document.getElementById('qrPayeeVpa').textContent = data.payeeVpa || '—';
+      document.getElementById('qrAmount').textContent = `₹${data.amount}`;
+      document.getElementById('upiAppLink').href = data.upiUri;
+      qrBox.style.display = 'block';
+      showQrBtn.style.display = 'none';
+      // The backend extends the session to an hour once a QR is issued —
+      // stretch the on-page countdown to match so it doesn't expire the
+      // view out from under someone mid-payment.
+      if (startCountdown._extend) startCountdown._extend(3300);
+    } catch (err) {
+      payStatus.textContent = err.message === 'payments-not-configured'
+        ? 'Online payment isn\'t set up yet — use the "message me directly" link below.'
+        : 'Could not load the payment QR — use the "message me directly" link below.';
+      payStatus.className = 'pay-status err';
+    } finally {
+      showQrBtn.disabled = false;
+      showQrBtn.textContent = 'Show payment QR →';
+    }
+  });
+
+  document.getElementById('submitUtrBtn').addEventListener('click', async () => {
+    if (!currentSessionId) return;
+    const utr = document.getElementById('utrInput').value.trim();
+    if (!utr) {
+      payStatus.textContent = 'Enter the UTR/reference number your UPI app showed after paying.';
+      payStatus.className = 'pay-status err';
+      return;
+    }
+    const btn = document.getElementById('submitUtrBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'submit_payment_claim', sessionId: currentSessionId, utr }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'claim-failed');
+
+      payStatus.textContent = '⏳ Got it — we\'re checking this against our records and will unlock your file as soon as it\'s confirmed (usually within a few hours). You\'ll get an email either way, so it\'s fine to close this tab.';
+      payStatus.className = 'pay-status ok';
+      document.getElementById('utrInput').disabled = true;
+      btn.textContent = 'Submitted';
+      // Session now lives for days while awaiting confirmation — the
+      // countdown display no longer means much, so stop showing it as
+      // an urgent timer.
+      if (timerValue) timerValue.textContent = '⏳';
+    } catch (err) {
+      payStatus.textContent = err.message === 'utr-looks-invalid'
+        ? 'That reference number doesn\'t look right — double check it and try again.'
+        : 'Could not submit — use the "message me directly" link below.';
+      payStatus.className = 'pay-status err';
+      btn.disabled = false;
+      btn.textContent = 'I\'ve paid — submit reference number';
+    }
+  });
+
+  document.getElementById('manualPayLink').addEventListener('click', () => {
+    const msgField = document.getElementById('cMsg');
+    if (msgField && currentSessionId) {
+      msgField.value = `My session code: ${currentSessionId}\nI'd like to unlock: (tell me which — clean / invoices / reminders / all)\n\n`;
+    }
+  });
+
+  // --- Admin test-unlock (skip payment while YOU are testing — logged,
+  // rate-limited, and requires the real admin key; never counted as
+  // revenue on the stats dashboard, see worker.js admin_test_unlock) ---
+  const adminTestToggle = document.getElementById('adminTestToggle');
+  const adminTestBox = document.getElementById('adminTestBox');
+  adminTestToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    adminTestBox.style.display = adminTestBox.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.getElementById('adminTestBtn').addEventListener('click', async () => {
+    if (!currentSessionId) return;
+    const adminKey = document.getElementById('adminTestKey').value;
+    if (!adminKey) {
+      payStatus.textContent = 'Enter the admin key first.';
+      payStatus.className = 'pay-status err';
+      return;
+    }
+    const btn = document.getElementById('adminTestBtn');
+    btn.disabled = true;
+    btn.textContent = 'Unlocking…';
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'admin_test_unlock', sessionId: currentSessionId, adminKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'admin-test-failed');
+
+      // The regular polling loop (startPolling, already running since the
+      // file was processed) picks up session.unlocked automatically and
+      // renders results — this just needs to confirm it worked.
+      payStatus.textContent = '🔧 Admin test unlock confirmed — this was NOT a real payment, logged as an admin test. Results will appear below in a moment.';
+      payStatus.className = 'pay-status ok';
+      document.getElementById('adminTestKey').value = '';
+    } catch (err) {
+      payStatus.textContent = err.message === 'invalid-admin-key'
+        ? '❌ Wrong admin key.'
+        : err.message === 'rate-limited'
+        ? '❌ Rate-limited — too many admin actions this hour.'
+        : '❌ Could not reach server.';
+      payStatus.className = 'pay-status err';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Unlock free — this is a test, not a real payment';
+    }
+  });
+
+  // --- Monthly subscription (UPI QR — no gateway, no auto-renew; you get
+  // a reminder email a few days before it expires, see worker.js cron) ---
+  const memberEmailInput = document.getElementById('memberEmailInput');
+  const memberStatus = document.getElementById('memberStatus');
+  const subEmailInput = document.getElementById('subEmailInput');
+  const subscribeBtn = document.getElementById('subscribeBtn');
+  const subStatus = document.getElementById('subStatus');
+  const subQrBox = document.getElementById('subQrBox');
+
+  let memberCheckTimeout = null;
+  memberEmailInput.addEventListener('input', () => {
+    clearTimeout(memberCheckTimeout);
+    memberStatus.textContent = '';
+    const email = memberEmailInput.value.trim();
+    if (!email.includes('@')) return;
+    memberCheckTimeout = setTimeout(async () => {
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check_membership', email }),
+        });
+        const data = await res.json();
+        memberStatus.textContent = data.active ? '✓ Active member — files unlock free' : '';
+        memberStatus.className = data.active ? 'member-status active' : 'member-status';
+      } catch { /* silent — non-critical check */ }
+    }, 600);
+  });
+
+  subscribeBtn.addEventListener('click', async () => {
+    const email = subEmailInput.value.trim();
+    if (!email.includes('@')) {
+      subStatus.textContent = 'Enter a valid email first.';
+      subStatus.className = 'pay-status err';
+      return;
+    }
+    subscribeBtn.disabled = true;
+    subscribeBtn.textContent = 'Loading…';
+    subStatus.textContent = '';
+    subStatus.className = 'pay-status';
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_subscription_payment_info', email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'subscription-info-failed');
+
+      document.getElementById('subQrImg').src = data.qrImageUrl;
+      document.getElementById('subQrPayeeName').textContent = data.payeeName || '—';
+      document.getElementById('subQrPayeeVpa').textContent = data.payeeVpa || '—';
+      document.getElementById('subQrAmount').textContent = `₹${data.amount}`;
+      document.getElementById('subUpiAppLink').href = data.upiUri;
+      subQrBox.style.display = 'block';
+      subscribeBtn.style.display = 'none';
+      const firstMonthNote = document.getElementById('subFirstMonthNote');
+      if (firstMonthNote) {
+        firstMonthNote.textContent = data.isFirstMonth
+          ? `🎉 First month price: ₹${data.amount.toFixed ? data.amount.toFixed(0) : data.amount} — renews at ₹${data.regularPrice}/month after that.`
+          : `Renewal price: ₹${data.regularPrice}/month.`;
+      }
+      subStatus.textContent = 'Scan, pay the exact amount shown (a few extra paise are added on purpose — it\'s how your payment gets matched, not an extra charge), then submit your reference number below.';
+    } catch (err) {
+      subStatus.textContent = err.message === 'subscriptions-not-configured'
+        ? "Monthly plans aren't set up yet — message me directly for now."
+        : 'Could not load the payment QR — message me directly.';
+      subStatus.className = 'pay-status err';
+    } finally {
+      subscribeBtn.disabled = false;
+      subscribeBtn.textContent = 'Subscribe';
+    }
+  });
+
+  document.getElementById('subSubmitUtrBtn').addEventListener('click', async () => {
+    const email = subEmailInput.value.trim();
+    const utr = document.getElementById('subUtrInput').value.trim();
+    if (!utr) {
+      subStatus.textContent = 'Enter the UTR/reference number your UPI app showed after paying.';
+      subStatus.className = 'pay-status err';
+      return;
+    }
+    const btn = document.getElementById('subSubmitUtrBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'submit_subscription_claim', email, utr }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'claim-failed');
+
+      subStatus.textContent = '⏳ Got it — we\'ll confirm this against our records and email you once your subscription is active (usually within a few hours).';
+      subStatus.className = 'pay-status ok';
+      document.getElementById('subUtrInput').disabled = true;
+      btn.textContent = 'Submitted';
+    } catch (err) {
+      subStatus.textContent = err.message === 'utr-looks-invalid'
+        ? 'That reference number doesn\'t look right — double check it and try again.'
+        : 'Could not submit — message me directly.';
+      subStatus.className = 'pay-status err';
+      btn.disabled = false;
+      btn.textContent = 'I\'ve paid — submit reference number';
+    }
+  });
+
+  // --- Ask your data (LLM-powered, only works once unlocked) ---
+  const askDataBtn = document.getElementById('askDataBtn');
+  const askDataInput = document.getElementById('askDataInput');
+  const askDataResult = document.getElementById('askDataResult');
+
+  async function askData() {
+    const question = askDataInput.value.trim();
+    if (!question || !currentSessionId) return;
+    askDataBtn.disabled = true;
+    askDataResult.textContent = 'Thinking…';
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ask_data', sessionId: currentSessionId, question }),
+      });
+      const data = await res.json();
+      askDataResult.textContent = res.ok ? data.answer : (
+        data.error === 'not-configured'
+          ? "This feature isn't set up yet on this site."
+          : `Couldn't get an answer (${data.error || 'unknown error'}).`
+      );
+    } catch {
+      askDataResult.textContent = 'Could not reach the server.';
+    } finally {
+      askDataBtn.disabled = false;
+    }
+  }
+  askDataBtn.addEventListener('click', askData);
+
+  // --- CA/accountant referral ---
+  const caReferralBtn = document.getElementById('caReferralBtn');
+  caReferralBtn.addEventListener('click', async () => {
+    if (!currentSessionId) return;
+    const resultEl = document.getElementById('caReferralResult');
+    caReferralBtn.disabled = true;
+    caReferralBtn.textContent = 'Finding a match…';
+    resultEl.textContent = '';
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_ca_referral', sessionId: currentSessionId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'referral-failed');
+      resultEl.innerHTML = `<b>${data.partner.name}</b>${data.partner.specialty ? ' — ' + data.partner.specialty : ''}<br>${data.partner.contact}`;
+      caReferralBtn.style.display = 'none';
+    } catch (err) {
+      resultEl.textContent = err.message === 'no-partners-available'
+        ? "No CA partners set up yet — message me directly and I'll point you to someone."
+        : "Couldn't get a referral right now — message me directly.";
+    } finally {
+      caReferralBtn.disabled = false;
+      caReferralBtn.textContent = 'Get a CA referral';
+    }
+  });
+  askDataInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') askData(); });
+
+  // --- Admin panel (only you should use this) ---
+  if (window.location.search.includes('admin=1')) {
+    // Escapes text before it goes into innerHTML. Transaction emails,
+    // error messages, and subscription emails/URLs all originate from
+    // data a CLIENT controls (CSV cells, email fields) — without this, a
+    // malicious value could execute script in this admin page and steal
+    // the admin key typed into adminKeyInput above.
+    const esc = (str) => { const d = document.createElement('div'); d.textContent = String(str ?? ''); return d.innerHTML; };
+
+    const adminSection = document.createElement('section');
+    adminSection.innerHTML = `
+      <div class="tool-panel admin-panel">
+        <span class="step-label">🔧 Admin — unlock a client session</span>
+        <input type="text" id="adminSessionId" placeholder="Session ID">
+        <input type="password" id="adminKeyInput" placeholder="Your admin key">
+        <div class="admin-check-row">
+          <label><input type="checkbox" id="adminOptClean" checked> Clean</label>
+          <label><input type="checkbox" id="adminOptInvoice" checked> Invoices</label>
+          <label><input type="checkbox" id="adminOptReminder" checked> Reminders</label>
+        </div>
+        <button class="btn btn-primary" id="adminUnlockBtn">Unlock selected</button>
+        <div class="admin-result" id="adminResult"></div>
+      </div>
+
+      <div class="tool-panel admin-panel" style="margin-top:16px;">
+        <span class="step-label">📊 Stats</span>
+        <button class="btn btn-primary" id="adminStatsBtn">Refresh stats</button>
+        <div class="admin-result" id="adminStatsResult"></div>
+      </div>
+
+      <div class="tool-panel admin-panel" style="margin-top:16px;">
+        <span class="step-label">💰 Payment claims</span>
+        <p class="tool-hint" style="margin-bottom:10px;">A client scanned the UPI QR, paid, and submitted a UTR — check your UPI app/bank statement for the exact amount, then confirm or reject.</p>
+        <button class="btn btn-primary" id="claimsListBtn">Show pending claims</button>
+        <div class="admin-result" id="claimsResult"></div>
+      </div>
+
+      <div class="tool-panel admin-panel" style="margin-top:16px;">
+        <span class="step-label">🔁 Recurring subscriptions</span>
+        <p class="tool-hint" style="margin-bottom:10px;">Client's Google Sheet must be published as CSV: File → Share → Publish to web → CSV.</p>
+        <input type="email" id="subEmail" placeholder="Client email">
+        <input type="text" id="subSheetUrl" placeholder="Published Google Sheets CSV URL">
+        <div class="admin-check-row">
+          <label><input type="checkbox" id="subOptClean" checked> Clean</label>
+          <label><input type="checkbox" id="subOptInvoice" checked> Invoices</label>
+          <label><input type="checkbox" id="subOptReminder" checked> Reminders</label>
+        </div>
+        <button class="btn btn-primary" id="subAddBtn">Add subscription</button>
+        <button class="btn" id="subListBtn" style="margin-left:8px;">List all</button>
+        <div class="admin-result" id="subResult"></div>
+      </div>
+
+      <div class="tool-panel admin-panel" style="margin-top:16px;">
+        <span class="step-label">🧾 Transaction log (permanent record — dispute proof)</span>
+        <p class="tool-hint" style="margin-bottom:10px;">Every verified payment, permanently. Export to CSV regularly and save a copy somewhere safe (Google Drive, etc.) as a backup.</p>
+        <button class="btn btn-primary" id="txnListBtn">Show recent</button>
+        <button class="btn" id="txnExportBtn" style="margin-left:8px;">Download CSV backup</button>
+        <div class="admin-result" id="txnResult"></div>
+      </div>
+
+      <div class="tool-panel admin-panel" style="margin-top:16px;">
+        <span class="step-label">🩺 Recent errors (poor-man's monitoring)</span>
+        <p class="tool-hint" style="margin-bottom:10px;">For real alerts (email/SMS the moment something breaks), point a free uptime monitor (UptimeRobot, Better Stack) at: <code>${esc(WORKER_URL)}/health</code></p>
+        <button class="btn btn-primary" id="errListBtn">Check for errors</button>
+        <div class="admin-result" id="errResult"></div>
+      </div>
+    `;
+    document.getElementById('tools').after(adminSection);
+
+    document.getElementById('adminUnlockBtn').addEventListener('click', async () => {
+      const sessionId = document.getElementById('adminSessionId').value.trim();
+      const adminKey = document.getElementById('adminKeyInput').value;
+      const options = [];
+      if (document.getElementById('adminOptClean').checked) options.push('clean');
+      if (document.getElementById('adminOptInvoice').checked) options.push('invoice');
+      if (document.getElementById('adminOptReminder').checked) options.push('reminder');
+
+      const resultEl = document.getElementById('adminResult');
+      resultEl.textContent = 'Unlocking…';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'unlock', sessionId, adminKey, options }),
+        });
+        const data = await res.json();
+        resultEl.textContent = res.ok
+          ? `✅ Unlocked: ${JSON.stringify(data.unlocked)}`
+          : `❌ ${data.error}`;
+      } catch (e) {
+        resultEl.textContent = '❌ Could not reach server.';
+      }
+    });
+
+    document.getElementById('adminStatsBtn').addEventListener('click', async () => {
+      const adminKey = document.getElementById('adminKeyInput').value;
+      const el = document.getElementById('adminStatsResult');
+      el.textContent = 'Loading…';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'admin_stats', adminKey }),
+        });
+        const data = await res.json();
+        if (!res.ok) { el.textContent = `❌ ${data.error}`; return; }
+        const s = data.stats;
+        el.innerHTML = `Total sessions: <b>${esc(s.total_sessions)}</b><br>Paid sessions: <b>${esc(s.paid_sessions)}</b><br>Revenue: <b>₹${esc(s.revenue_inr)}</b><br>Chat messages: <b>${esc(s.chat_messages)}</b><br>Admin test sessions: <b>${esc(s.admin_test_sessions)}</b>`;
+      } catch {
+        el.textContent = '❌ Could not reach server.';
+      }
+    });
+
+    function renderClaims(el, claims, adminKey) {
+      if (!claims.length) { el.textContent = 'No pending claims.'; return; }
+      const kindLabel = { onetime: 'One-time file', sub: 'Monthly subscription', email: 'Email intake' };
+      el.innerHTML = claims.map((c) => `
+        <div style="padding:10px 0; border-bottom:1px solid var(--line, #ddd);">
+          <b>${esc(kindLabel[c.kind] || c.kind)}</b> — ${esc(c.email) || '(no email)'}<br>
+          <span class="mono">₹${esc(c.amount)} · UTR: ${esc(c.utr)} · ${esc(new Date(c.claimedAt).toLocaleString())}</span><br>
+          <button data-confirm data-kind="${esc(c.kind)}" data-id="${esc(c.id)}" style="margin-top:6px; margin-right:8px; padding:4px 10px; cursor:pointer;">Confirm</button>
+          <button data-reject data-kind="${esc(c.kind)}" data-id="${esc(c.id)}" style="padding:4px 10px; cursor:pointer;">Reject</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('button[data-confirm]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true; btn.textContent = 'Confirming…';
+          try {
+            const res = await fetch(WORKER_URL, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'confirm_claim', adminKey, kind: btn.dataset.kind, id: btn.dataset.id }),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert('Could not confirm: ' + data.error); btn.disabled = false; btn.textContent = 'Confirm'; return; }
+            document.getElementById('claimsListBtn').click();
+          } catch { alert('Could not reach server.'); btn.disabled = false; btn.textContent = 'Confirm'; }
+        });
+      });
+      el.querySelectorAll('button[data-reject]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Reject this claim? The client will be emailed that it could not be verified.')) return;
+          btn.disabled = true; btn.textContent = 'Rejecting…';
+          try {
+            await fetch(WORKER_URL, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'reject_claim', adminKey, kind: btn.dataset.kind, id: btn.dataset.id }),
+            });
+            document.getElementById('claimsListBtn').click();
+          } catch { alert('Could not reach server.'); btn.disabled = false; btn.textContent = 'Reject'; }
+        });
+      });
+    }
+
+    document.getElementById('claimsListBtn').addEventListener('click', async () => {
+      const adminKey = document.getElementById('adminKeyInput').value;
+      const el = document.getElementById('claimsResult');
+      el.textContent = 'Loading…';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list_payment_claims', adminKey }),
+        });
+        const data = await res.json();
+        if (!res.ok) { el.textContent = `❌ ${data.error}`; return; }
+        renderClaims(el, data.claims, adminKey);
+      } catch {
+        el.textContent = '❌ Could not reach server.';
+      }
+    });
+
+    document.getElementById('subAddBtn').addEventListener('click', async () => {
+      const adminKey = document.getElementById('adminKeyInput').value;
+      const email = document.getElementById('subEmail').value.trim();
+      const sheetUrl = document.getElementById('subSheetUrl').value.trim();
+      const opts = {
+        clean: document.getElementById('subOptClean').checked,
+        invoice: document.getElementById('subOptInvoice').checked,
+        reminder: document.getElementById('subOptReminder').checked,
+      };
+      const el = document.getElementById('subResult');
+      el.textContent = 'Adding…';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'subscribe', adminKey, email, sheetUrl, opts }),
+        });
+        const data = await res.json();
+        el.textContent = res.ok ? `✅ Added (id: ${data.subId})` : `❌ ${data.error}`;
+      } catch {
+        el.textContent = '❌ Could not reach server.';
+      }
+    });
+
+    document.getElementById('subListBtn').addEventListener('click', async () => {
+      const adminKey = document.getElementById('adminKeyInput').value;
+      const el = document.getElementById('subResult');
+      el.textContent = 'Loading…';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list_subscriptions', adminKey }),
+        });
+        const data = await res.json();
+        if (!res.ok) { el.textContent = `❌ ${data.error}`; return; }
+        if (!data.subscriptions.length) { el.textContent = 'No subscriptions yet.'; return; }
+        el.innerHTML = data.subscriptions.map((s) =>
+          `<span>${esc(s.email)} — ${esc(s.sheetUrl.slice(0, 40))}… <button data-subid="${esc(s.id)}" style="display:inline;padding:2px 8px;cursor:pointer;">remove</button></span>`
+        ).join('<br><br>');
+        el.querySelectorAll('button[data-subid]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            await fetch(WORKER_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'unsubscribe', adminKey, subId: btn.dataset.subid }),
+            });
+            btn.parentElement.style.textDecoration = 'line-through';
+          });
+        });
+      } catch {
+        el.textContent = '❌ Could not reach server.';
+      }
+    });
+
+    document.getElementById('txnListBtn').addEventListener('click', async () => {
+      const adminKey = document.getElementById('adminKeyInput').value;
+      const el = document.getElementById('txnResult');
+      el.textContent = 'Loading…';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list_transactions', adminKey, limit: 50 }),
+        });
+        const data = await res.json();
+        if (!res.ok) { el.textContent = `❌ ${data.error}`; return; }
+        if (!data.transactions.length) { el.textContent = 'No transactions yet.'; return; }
+        el.innerHTML = data.transactions.map((t) =>
+          `<span style="display:inline-block; font-size:0.65rem; font-weight:700; padding:2px 6px; border-radius:4px; margin-right:6px; background:${t.isAdmin ? '#F0A868' : '#3ED598'}; color:#1a1a1a;">${t.isAdmin ? 'ADMIN' : 'CLIENT'}</span>${esc(new Date(t.timestamp).toLocaleString())} — ${esc(t.type)} — ${esc(t.email) || '(no email)'} — ₹${esc(t.amount ?? 'see plan')} — ref: ${esc(t.referenceId)}`
+        ).join('<br><br>');
+      } catch {
+        el.textContent = '❌ Could not reach server.';
+      }
+    });
+
+    document.getElementById('txnExportBtn').addEventListener('click', async () => {
+      const adminKey = document.getElementById('adminKeyInput').value;
+      const el = document.getElementById('txnResult');
+      el.textContent = 'Preparing CSV…';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'export_transactions_csv', adminKey }),
+        });
+        const data = await res.json();
+        if (!res.ok) { el.textContent = `❌ ${data.error}`; return; }
+        const blob = new Blob([data.csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `quickfix-transactions-${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+        el.textContent = `✅ Downloaded ${data.count} record(s).`;
+      } catch {
+        el.textContent = '❌ Could not reach server.';
+      }
+    });
+
+    document.getElementById('errListBtn').addEventListener('click', async () => {
+      const adminKey = document.getElementById('adminKeyInput').value;
+      const el = document.getElementById('errResult');
+      el.textContent = 'Checking…';
+      try {
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list_errors', adminKey, limit: 30 }),
+        });
+        const data = await res.json();
+        if (!res.ok) { el.textContent = `❌ ${data.error}`; return; }
+        if (!data.errors.length) { el.textContent = '✅ No errors in the last 30 days.'; return; }
+        el.innerHTML = data.errors.map((e) =>
+          `${esc(new Date(e.timestamp).toLocaleString())} — [${esc(e.context)}] ${esc(e.error)}`
+        ).join('<br><br>');
+      } catch {
+        el.textContent = '❌ Could not reach server.';
+      }
+    });
+  }
+
+  // --- On-site chat widget ---
+  const chatBubble = document.getElementById('chatBubble');
+  const chatPanel = document.getElementById('chatPanel');
+  const chatClose = document.getElementById('chatClose');
+  const chatBody = document.getElementById('chatBody');
+  const chatInput = document.getElementById('chatInput');
+  const chatEmail = document.getElementById('chatEmail');
+  const chatSend = document.getElementById('chatSend');
+
+  chatBubble.addEventListener('click', () => {
+    chatPanel.classList.toggle('open');
+    if (chatPanel.classList.contains('open')) chatInput.focus();
+  });
+  chatClose.addEventListener('click', () => chatPanel.classList.remove('open'));
+
+  function addChatMsg(text, who) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg ' + who;
+    div.textContent = text;
+    chatBody.appendChild(div);
+    chatBody.scrollTop = chatBody.scrollHeight;
+    return div;
+  }
+
+  // Instant, no-network canned answers — the widget used to be a bare
+  // "leave a message" form with no immediate value; most people opening
+  // a chat bubble expect at least a quick answer to common questions
+  // before waiting on a human reply.
+  const QUICK_ANSWERS = {
+    pricing: `Clean: ₹79 · Invoices: ₹129 · Reminders: ₹59 — pick all three and get 15% off automatically. Prefer unlimited files? The monthly plan is ₹599/month (first month ₹199).`,
+    payment: `Scan a UPI QR with any app (GPay, PhonePe, Paytm, etc.) after processing your file, then type in the reference number (UTR) it gives you. I check it against my bank/UPI app and confirm it — usually within a few hours, and you'll get an email either way.`,
+    safety: `Your file is processed in memory and deleted automatically after a short window — nothing is kept beyond what's needed to email you your results and keep a payment record. See the full privacy note further down this page.`,
+    speed: `Cleaning/invoices/reminders themselves are instant once you upload — the only wait is me manually confirming your UPI payment, which is usually within a few hours.`,
+  };
+
+  document.getElementById('chatQuickReplies').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-q]');
+    if (!btn) return;
+    addChatMsg(btn.textContent, 'me');
+    addChatMsg(QUICK_ANSWERS[btn.dataset.q] || "Not sure — type your question below and I'll get back to you.", 'bot');
+    btn.parentElement.style.display = 'none'; // one-shot; typing a real question after is still available
+  });
+
+  function openMailFallback(message, email, noteEl) {
+    const subject = encodeURIComponent('Chat message from site');
+    const bodyText = encodeURIComponent(`From: ${email || '(not given)'}\n\n${message}`);
+    const mailtoUrl = `mailto:quickfixdata@gmail.com?subject=${subject}&body=${bodyText}`;
+    // mailto: silently does nothing on a lot of mobile browsers and
+    // in-app webviews (no default mail app, or navigation just blocked)
+    // — that's the "the button does nothing" bug. Always show a copy
+    // button alongside it that's guaranteed to work regardless.
+    window.location.href = mailtoUrl;
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-msg bot';
+    wrap.innerHTML = `If nothing opened, <a href="${mailtoUrl}">click here</a>, or copy this and send it any way you like:<br>
+      <textarea readonly style="width:100%; min-height:60px; font-size:0.78rem; margin-top:6px;">${message}\n\nReply to: ${email || '(not given)'}\nSend to: quickfixdata@gmail.com</textarea>
+      <button type="button" id="chatCopyBtn" style="margin-top:4px; font-size:0.78rem;">Copy message</button>`;
+    chatBody.appendChild(wrap);
+    chatBody.scrollTop = chatBody.scrollHeight;
+    document.getElementById('chatCopyBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText(wrap.querySelector('textarea').value);
+      document.getElementById('chatCopyBtn').textContent = 'Copied ✓';
+    });
+  }
+
+  async function sendChatMessage() {
+    const message = chatInput.value.trim();
+    const email = chatEmail.value.trim();
+    if (!message) return;
+
+    addChatMsg(message, 'me');
+    chatInput.value = '';
+    chatSend.disabled = true;
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'contact_message', message, email }),
+      });
+      const data = await res.json();
+      if (res.ok && data.sent) {
+        addChatMsg("Got it — that's on its way to me. I'll reply within an hour, here or by email.", 'bot');
+      } else {
+        // Not configured or send failed server-side — fall back, with a
+        // guaranteed-working copy option alongside the mailto attempt.
+        addChatMsg("Couldn't send that automatically —", 'bot');
+        openMailFallback(message, email);
+      }
+    } catch (e) {
+      addChatMsg("Couldn't reach the server —", 'bot');
+      openMailFallback(message, email);
+    } finally {
+      chatSend.disabled = false;
+    }
+  }
+
+  chatSend.addEventListener('click', sendChatMessage);
+  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+</script>
+
+</body>
+</html>
