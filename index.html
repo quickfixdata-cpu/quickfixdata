@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://static.cloudflareinsights.com; connect-src 'self' https://*.workers.dev https://mail.google.com; img-src 'self' data: https://api.qrserver.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://static.cloudflareinsights.com; connect-src 'self' https://api.quickfixdata.in https://mail.google.com; img-src 'self' data: https://api.qrserver.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;">
 <!-- Note: 'unsafe-inline' on script-src is needed because this page's
      JS lives in inline script blocks (the whole point of the zero-build
      "paste and deploy" setup). This CSP still blocks the two riskiest
@@ -1507,7 +1507,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     resultBlocks.appendChild(block);
   }
 
-  const WORKER_URL = 'https://quickfixdata.quickfixdata.workers.dev';
+  const WORKER_URL = "https://api.quickfixdata.in";
 
   const lockedPanel = document.getElementById('lockedPanel');
   const expiredPanel = document.getElementById('expiredPanel');
