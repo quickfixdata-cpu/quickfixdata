@@ -786,7 +786,16 @@ async function sendEmailIfConfigured(env, to, subject, text, attachmentBase64, a
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.RESEND_API_KEY}` },
       body: JSON.stringify(payload),
     });
-    return { sent: res.ok };
+    const responseText = await res.text();
+    console.log("EMAIL TO:", to);
+    console.log("RESEND STATUS:", res.status);
+    console.log("RESEND RESPONSE:", responseText);
+    
+    return {
+      sent: res.ok,
+      status: res.status,
+      response: responseText
+    };
   } catch {
     return { sent: false, reason: "network-error" };
   }
