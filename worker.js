@@ -1178,7 +1178,8 @@ function escapeXml(str) {
 
 function buildTallyXml(invoiceRows, companyName) {
   const vouchers = invoiceRows.map((r) => {
-    const dateStr = r.due ? `${r.due.getFullYear()}${String(r.due.getMonth() + 1).padStart(2, "0")}${String(r.due.getDate()).padStart(2, "0")}` : "";
+    const dueDate = new Date(r.due);
+    const dateStr = `${dueDate.getFullYear()}${String(dueDate.getMonth() + 1).padStart(2, "0")}${String(dueDate.getDate()).padStart(2, "0")}`;
     return `
       <TALLYMESSAGE xmlns:UDF="TallyUDF">
         <VOUCHER VCHTYPE="Sales" ACTION="Create">
