@@ -1,3 +1,5 @@
+import PostalMime from "./vendor/postal-mime/postal-mime.js";
+
 /**
  * QuickFix Data — backend v9 — UPI QR payments (Razorpay removed) + security hardening
  * ======================================================
@@ -1053,7 +1055,7 @@ function looksLikeBinaryGarbage(text) {
   return controlChars / sampleLen > 0.05; // more than 5% control chars = not real text
 }
 
-/* ---------------- Minimal MIME parser (no external library) ---------------- */
+/* ---------------- MIME parsing (postal-mime, Workers-safe) ---------------- */
 // Handles the common case: a multipart/mixed email with a plain-text (or
 // HTML) body plus one CSV attachment, the way Gmail/Outlook actually send
 // them. Doesn't attempt to handle every RFC 2045 edge case (nested
@@ -1061,63 +1063,33 @@ function looksLikeBinaryGarbage(text) {
 // and fails safely (returns no attachments) rather than crashing on
 // anything it doesn't recognize.
 
-function decodeBase64ToText(b64) {
-  const cleaned = b64.replace(/\s/g, "");
-  const binary = atob(cleaned);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder("utf-8").decode(bytes);
+const mimeTextDecoder = new TextDecoder("utf-8");
+
+function attachmentContentToText(content) {
+  if (typeof content === "string") return content;
+  if (content instanceof ArrayBuffer) return mimeTextDecoder.decode(new Uint8Array(content));
+  if (ArrayBuffer.isView(content)) {
+    return mimeTextDecoder.decode(new Uint8Array(content.buffer, content.byteOffset, content.byteLength));
+  }
+  return "";
 }
 
-function decodeQuotedPrintable(str) {
-  return str
-    .replace(/=\r?\n/g, "")
-    .replace(/=([A-Fa-f0-9]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-}
+async function parseMimeEmail(rawEmail) {
+  const parsed = await PostalMime.parse(rawEmail, {
+    attachmentEncoding: "arraybuffer",
+  });
 
-function parseMimeEmail(rawText) {
-  const headerEnd = rawText.indexOf("\r\n\r\n");
-  const topHeaders = rawText.slice(0, headerEnd === -1 ? rawText.indexOf("\n\n") : headerEnd);
-  const contentTypeMatch = topHeaders.match(/Content-Type:\s*([^\r\n;]+)(?:;[^\r\n]*boundary="?([^"\r\n]+)"?)?/i);
-  const attachments = [];
-  let textBody = "";
+  const attachments = (parsed.attachments || [])
+    .filter((attachment) => attachment?.filename)
+    .map((attachment) => ({
+      filename: attachment.filename,
+      content: attachmentContentToText(attachment.content),
+    }));
 
-  if (!contentTypeMatch || !contentTypeMatch[1].toLowerCase().includes("multipart")) {
-    // Plain single-part email, no attachment possible.
-    return { textBody: rawText.slice(headerEnd + 4), attachments };
-  }
-
-  const boundary = contentTypeMatch[2];
-  if (!boundary) return { textBody: "", attachments };
-
-  const parts = rawText.split(`--${boundary}`).slice(1, -1); // drop preamble + trailing "--"
-  for (const part of parts) {
-    const partHeaderEnd = part.indexOf("\r\n\r\n") !== -1 ? part.indexOf("\r\n\r\n") : part.indexOf("\n\n");
-    if (partHeaderEnd === -1) continue;
-    const partHeaders = part.slice(0, partHeaderEnd);
-    const partBody = part.slice(partHeaderEnd + 4).replace(/\r?\n$/, "");
-
-    const dispositionMatch = partHeaders.match(/Content-Disposition:\s*attachment[^\r\n]*filename="?([^"\r\n;]+)"?/i);
-    const encodingMatch = partHeaders.match(/Content-Transfer-Encoding:\s*([^\r\n]+)/i);
-    const encoding = (encodingMatch ? encodingMatch[1] : "7bit").trim().toLowerCase();
-
-    if (dispositionMatch) {
-      const filename = dispositionMatch[1].trim();
-      let content;
-      try {
-        if (encoding === "base64") content = decodeBase64ToText(partBody);
-        else if (encoding === "quoted-printable") content = decodeQuotedPrintable(partBody);
-        else content = partBody;
-      } catch {
-        continue; // skip attachments that fail to decode rather than crash the whole email
-      }
-      attachments.push({ filename, content });
-    } else if (!textBody && /Content-Type:\s*text\/plain/i.test(partHeaders)) {
-      textBody = encoding === "quoted-printable" ? decodeQuotedPrintable(partBody) : partBody;
-    }
-  }
-
-  return { textBody, attachments };
+  return {
+    textBody: typeof parsed.text === "string" ? parsed.text : "",
+    attachments,
+  };
 }
 
 /* ---------------- Sender authenticity (anti-spoofing) ---------------- */
@@ -1386,7 +1358,7 @@ export default {
       // independently.
       const rawBuffer = await new Response(message.raw).arrayBuffer();
       const rawText = new TextDecoder("utf-8").decode(rawBuffer);
-      const { attachments, textBody } = parseMimeEmail(rawText);
+      const { attachments, textBody } = await parseMimeEmail(rawBuffer);
 
       // 0) Automatic payment confirmation: if this is YOU (env.OWNER_EMAIL,
       // exact match) forwarding your own bank/UPI credit-alert email, AND
