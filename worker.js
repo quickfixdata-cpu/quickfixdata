@@ -1321,7 +1321,10 @@ export default {
       // Last-resort catch: log it so the admin panel's "recent errors"
       // view can surface it, instead of the failure vanishing silently.
       await logError(env, action, err && err.stack ? err.stack : err);
-      return jsonResponse({ error: "internal-error" }, 500);
+      return jsonResponse({
+        error: err?.message || String(err),
+        stack: err?.stack || null
+      }, 500);
     }
   },
 
