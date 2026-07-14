@@ -18,7 +18,7 @@ crons = [
 
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "REPLACE_WITH_PRODUCTION_SESSIONS_KV_NAMESPACE_ID"
+id = "fec5fde534c045ef90430192b580ca56"
 
 [vars]
 ALLOWED_ORIGIN = "https://quickfixdata.in"
