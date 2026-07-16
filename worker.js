@@ -315,6 +315,145 @@ function csvCell(value) {
   return s;
 }
 
+function base64ToBytes(base64) {
+  let normalized = String(base64 || "").replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  while (normalized.length % 4) normalized += "=";
+  if (!normalized) return new Uint8Array(0);
+  if (typeof Buffer !== "undefined") return Uint8Array.from(Buffer.from(normalized, "base64"));
+  const binary = atob(normalized);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function sanitizeFilename(name) {
+  const base = String(name || "download").trim().replace(/[\\/]+/g, "-").replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const cleaned = base.replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return cleaned || "download";
+}
+
+function buildPdfFromText(text) {
+  const lines = String(text || "").split(/\r?\n/).filter((line) => line.length > 0);
+  return buildSimplePdf(lines);
+}
+
+function buildCsvFromRows(rows) {
+  return rows.map((row) => row.map((cell) => csvCell(cell)).join(',')).join('\n');
+}
+
+function excelColumnName(index) {
+  let n = index + 1;
+  let name = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    name = String.fromCharCode(65 + rem) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+}
+
+function safeSheetName(name) {
+  const cleaned = String(name || "Sheet1").replace(/[:\\/?*[\]]/g, " ").trim();
+  return (cleaned || "Sheet1").slice(0, 31);
+}
+
+function parseSimpleInvoiceText(text) {
+  const source = String(text || "");
+  const invoiceNumber = source.match(/invoice(?:\s+number)?\s*[:#-]?\s*([A-Za-z0-9\-/]+)/i)?.[1] || source.match(/#([A-Za-z0-9\-/]+)/)?.[1] || "";
+  const client = source.match(/(?:bill(?:ed)?\s+to|customer|client)\s*[:#-]?\s*([A-Za-z0-9 .,&/()-]+)/i)?.[1] || source.match(/name\s*[:#-]?\s*([A-Za-z0-9 .,&/()-]+)/i)?.[1] || "";
+  const amount = source.match(/(?:total|amount|balance|due)\s*[:#-]?\s*₹?\s*([0-9,\.]+)/i)?.[1] || source.match(/₹\s*([0-9,\.]+)/)?.[1] || "";
+  const due = source.match(/due\s+(?:date|on)\s*[:#-]?\s*([0-9A-Za-z\-/]+)/i)?.[1] || source.match(/(?:date|due)\s*[:#-]?\s*([0-9A-Za-z\-/]+)/i)?.[1] || "";
+  return { invoiceNumber, client: client.trim(), amount: amount.trim(), due: due.trim() };
+}
+
+function decodePdfString(value) {
+  return String(value || "")
+    .replace(/\\([nrtbf()\\])/g, (_, ch) => ({ n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", "(": "(", ")": ")", "\\": "\\" }[ch] || ch))
+    .replace(/\\([0-9]{1,3})/g, (_, code) => String.fromCharCode(parseInt(code, 8)));
+}
+
+function extractTextFromPdfBase64(base64) {
+  if (!base64) return "";
+  const bytes = base64ToBytes(base64);
+  const pdfText = new TextDecoder("latin1").decode(bytes);
+  const parts = [];
+  const regex = /\(([^()]*)\)\s*Tj/g;
+  let match;
+  while ((match = regex.exec(pdfText))) {
+    parts.push(decodePdfString(match[1]));
+  }
+  const arrayRegex = /\[((?:[^\]\\]|\\.|\([^)]*\))*)\]\s*TJ/g;
+  while ((match = arrayRegex.exec(pdfText))) {
+    const text = Array.from(match[1].matchAll(/\(([^()]*)\)/g)).map((m) => decodePdfString(m[1])).join("");
+    if (text) parts.push(text);
+  }
+  return parts.join("\n").trim();
+}
+
+function decodeXmlEntities(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+async function readStreamBytes(stream) {
+  const reader = stream.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.length;
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+async function inflateZipEntry(data) {
+  if (typeof DecompressionStream === "undefined") throw new Error("zip-deflate-not-supported");
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return readStreamBytes(stream);
+}
+
+async function extractTextFromDocxBase64(base64) {
+  if (!base64) return "";
+  const bytes = base64ToBytes(base64);
+  const entries = [];
+  let offset = 0;
+  while (offset + 4 <= bytes.length) {
+    const sig = bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24);
+    if (sig === 0x06054b50) break;
+    if (sig !== 0x04034b50) break;
+    const method = bytes[offset + 8] | (bytes[offset + 9] << 8);
+    const nameLen = bytes[offset + 26] | (bytes[offset + 27] << 8);
+    const extraLen = bytes[offset + 28] | (bytes[offset + 29] << 8);
+    const compSize = bytes[offset + 18] | (bytes[offset + 19] << 8) | (bytes[offset + 20] << 16) | (bytes[offset + 21] << 24);
+    const nameBytes = bytes.slice(offset + 30, offset + 30 + nameLen);
+    const dataStart = offset + 30 + nameLen + extraLen;
+    const dataEnd = dataStart + compSize;
+    if (dataEnd > bytes.length) break;
+    const rawData = bytes.slice(dataStart, dataEnd);
+    let data = rawData;
+    if (method === 8) data = await inflateZipEntry(rawData);
+    else if (method !== 0) throw new Error("unsupported-docx-compression");
+    entries.push({ name: new TextDecoder("utf-8").decode(nameBytes), data });
+    offset = dataEnd;
+  }
+  const docEntry = entries.find((entry) => entry.name === "word/document.xml" || entry.name.endsWith("/word/document.xml"));
+  if (!docEntry) return "";
+  const xml = new TextDecoder("utf-8").decode(docEntry.data);
+  return Array.from(xml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)).map((m) => decodeXmlEntities(m[1])).join("\n").trim();
+}
+
 /* ---------------- Dependency-free PDF writer ---------------- */
 // Hand-built single-page PDF (Helvetica, one text block). No npm install
 // needed, so the zero-build "paste and deploy" workflow still works.
@@ -599,7 +738,7 @@ function buildZip(entries) {
     const dv = new DataView(lf.buffer);
     dv.setUint32(p, 0x04034b50, true); p += 4; // local file header signature
     dv.setUint16(p, 20, true); p += 2; // version needed
-    dv.setUint16(p, 0, true); p += 2; // general purpose
+    dv.setUint16(p, 0x0800, true); p += 2; // general purpose: UTF-8 file names
     dv.setUint16(p, 0, true); p += 2; // compression (0 = store)
     dv.setUint16(p, 0, true); p += 2; // mod time
     dv.setUint16(p, 0, true); p += 2; // mod date
@@ -620,7 +759,7 @@ function buildZip(entries) {
     cdv.setUint32(q, 0x02014b50, true); q += 4; // central file header signature
     cdv.setUint16(q, 0x14, true); q += 2; // version made by
     cdv.setUint16(q, 20, true); q += 2; // version needed
-    cdv.setUint16(q, 0, true); q += 2; // gp bit
+    cdv.setUint16(q, 0x0800, true); q += 2; // gp bit: UTF-8 file names
     cdv.setUint16(q, 0, true); q += 2; // compression
     cdv.setUint16(q, 0, true); q += 2; // mod time
     cdv.setUint16(q, 0, true); q += 2; // mod date
@@ -667,8 +806,9 @@ function buildZip(entries) {
 
 function buildXlsxFromRows(rows, sheetName = 'Sheet1') {
   // rows: array of array of cell strings. We'll use inlineStr to avoid sharedStrings.
+  const safeName = safeSheetName(sheetName);
   const sheetRows = rows.map((r, ri) => {
-    const cols = r.map((c, ci) => `<c r="${String.fromCharCode(65 + ci)}${ri + 1}" t="inlineStr"><is><t>${escapeXml(String(c || ''))}</t></is></c>`).join('');
+    const cols = r.map((c, ci) => `<c r="${excelColumnName(ci)}${ri + 1}" t="inlineStr"><is><t>${escapeXml(String(c || ''))}</t></is></c>`).join('');
     return `<row r="${ri + 1}">${cols}</row>`;
   }).join('');
   const sheetXml = `<?xml version="1.0" encoding="UTF-8"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`;
@@ -676,7 +816,7 @@ function buildXlsxFromRows(rows, sheetName = 'Sheet1') {
   const files = [
     { name: '[Content_Types].xml', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n<Default Extension="xml" ContentType="application/xml"/>\n<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>\n<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>\n</Types>') },
     { name: '_rels/.rels', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="/xl/workbook.xml"/>\n</Relationships>') },
-    { name: 'xl/workbook.xml', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets><sheet name="' + escapeXml(sheetName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/workbook.xml', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="' + escapeXml(safeName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>') },
     { name: 'xl/_rels/workbook.xml.rels', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>\n</Relationships>') },
     { name: 'xl/worksheets/sheet1.xml', data: utf8Bytes(sheetXml) },
     { name: 'xl/styles.xml', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders></styleSheet>') }
@@ -2378,6 +2518,224 @@ async function handleAction(action, body, request, env) {
       if (!text) return jsonResponse({ error: 'missing-text' }, 400);
       const base64 = buildDocxFromText(text);
       return jsonResponse({ filename: (filename || 'document.docx'), contentBase64: base64 });
+    }
+
+    // --- run_tool (dashboard workflow for business document tools) ---
+    if (action === "run_tool") {
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const toolName = String(body.tool || "").trim();
+      const ok = await checkRateLimit(env, ip, `tool:${toolName || "unknown"}`, 30);
+      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
+      if (!toolName) return jsonResponse({ error: "missing-tool" }, 400);
+
+      try {
+        const payload = body.payload || body;
+        let response;
+        switch (toolName) {
+          case "csv_to_pdf": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const pdfBytes = buildPdfFromText(csvText);
+            response = { filename: sanitizeFilename(payload.filename || "export.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "excel_to_pdf": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const pdfBytes = buildPdfFromText(csvText);
+            response = { filename: sanitizeFilename(payload.filename || "excel-export.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "pdf_invoice_to_csv": {
+            const text = String(payload.text || extractTextFromPdfBase64(payload.base64 || payload.contentBase64 || "") || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const parsed = parseSimpleInvoiceText(text);
+            const rows = [["Invoice Number", "Customer", "Amount", "Due Date"], [parsed.invoiceNumber, parsed.client, parsed.amount, parsed.due]];
+            response = { filename: sanitizeFilename(payload.filename || "invoice.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows(rows))), mimeType: "text/csv" };
+            break;
+          }
+          case "pdf_invoice_to_excel": {
+            const text = String(payload.text || extractTextFromPdfBase64(payload.base64 || payload.contentBase64 || "") || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const parsed = parseSimpleInvoiceText(text);
+            const rows = [["Invoice Number", "Customer", "Amount", "Due Date"], [parsed.invoiceNumber, parsed.client, parsed.amount, parsed.due]];
+            response = { filename: sanitizeFilename(payload.filename || "invoice.xlsx"), contentBase64: buildXlsxFromRows(rows, "Invoice"), mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+            break;
+          }
+          case "merge_csv": {
+            const files = Array.isArray(payload.files) ? payload.files : [];
+            if (!files.length) return jsonResponse({ error: "missing-files" }, 400);
+            const rows = [];
+            let headers = [];
+            for (const file of files) {
+              const text = String(file.csvText || file.text || "");
+              if (!text) continue;
+              const parsed = parseCsv(text);
+              if (!headers.length) headers = parsed.headers;
+              for (const line of parsed.dataLines) rows.push(parseCsvLine(line));
+            }
+            const csvText = buildCsvFromRows([headers, ...rows]);
+            response = { filename: sanitizeFilename(payload.filename || "merged.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(csvText)), mimeType: "text/csv" };
+            break;
+          }
+          case "merge_excel": {
+            const files = Array.isArray(payload.files) ? payload.files : [];
+            if (!files.length) return jsonResponse({ error: "missing-files" }, 400);
+            const rows = [];
+            let headers = [];
+            for (const file of files) {
+              const text = String(file.csvText || file.text || "");
+              if (!text) continue;
+              const parsed = parseCsv(text);
+              if (!headers.length) headers = parsed.headers;
+              rows.push(...parsed.dataLines.map((line) => parseCsvLine(line)));
+            }
+            const xlsxBase64 = buildXlsxFromRows([headers.length ? headers : ["Value"], ...rows], "Merged");
+            response = { filename: sanitizeFilename(payload.filename || "merged.xlsx"), contentBase64: xlsxBase64, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+            break;
+          }
+          case "split_csv": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const { headers, dataLines } = parseCsv(csvText);
+            const chunkSize = Math.max(1, parseInt(payload.chunkSize || payload.rowsPerFile || "100", 10));
+            const chunks = [];
+            const rows = dataLines.map((line) => parseCsvLine(line));
+            for (let index = 0; index < rows.length; index += chunkSize) {
+              const chunkRows = rows.slice(index, index + chunkSize);
+              const chunkText = buildCsvFromRows([headers, ...chunkRows]);
+              chunks.push({ name: `split-${Math.floor(index / chunkSize) + 1}.csv`, data: new TextEncoder().encode(chunkText) });
+            }
+            const zipBytes = buildZip(chunks.map((entry) => ({ name: entry.name, data: entry.data })));
+            response = { filename: sanitizeFilename(payload.filename || "split-files.zip"), contentBase64: bytesToBase64(zipBytes), mimeType: "application/zip" };
+            break;
+          }
+          case "remove_duplicates": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const { headers, dataLines } = parseCsv(csvText);
+            const seen = new Set();
+            const outputRows = [];
+            for (const line of dataLines) {
+              const cells = parseCsvLine(line);
+              const key = cells.join("\u0000");
+              if (seen.has(key)) continue;
+              seen.add(key);
+              outputRows.push(cells);
+            }
+            response = { filename: sanitizeFilename(payload.filename || "deduped.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows([headers, ...outputRows]))), mimeType: "text/csv" };
+            break;
+          }
+          case "sort_rows": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const { headers, dataLines } = parseCsv(csvText);
+            const sortColumn = String(payload.sortColumn || headers[0] || "").trim().toLowerCase();
+            const rows = dataLines.map((line) => parseCsvLine(line));
+            const colIndex = headers.findIndex((header) => header.toLowerCase() === sortColumn);
+            const sortedRows = rows.slice().sort((a, b) => {
+              const left = (colIndex >= 0 ? a[colIndex] : a[0]) || "";
+              const right = (colIndex >= 0 ? b[colIndex] : b[0]) || "";
+              return String(left).localeCompare(String(right));
+            });
+            response = { filename: sanitizeFilename(payload.filename || "sorted.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows([headers, ...sortedRows]))), mimeType: "text/csv" };
+            break;
+          }
+          case "csv_to_excel": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const { headers, dataLines } = parseCsv(csvText);
+            const rows = [headers, ...dataLines.map((line) => parseCsvLine(line))];
+            response = { filename: sanitizeFilename(payload.filename || "converted.xlsx"), contentBase64: buildXlsxFromRows(rows, "Converted"), mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+            break;
+          }
+          case "excel_to_csv": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            response = { filename: sanitizeFilename(payload.filename || "converted.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(csvText)), mimeType: "text/csv" };
+            break;
+          }
+          case "docx_to_pdf": {
+            const base64 = payload.base64 || payload.contentBase64 || "";
+            if (!base64) return jsonResponse({ error: "missing-file" }, 400);
+            const text = await extractTextFromDocxBase64(base64);
+            if (!text) return jsonResponse({ error: "could-not-read-docx" }, 400);
+            const pdfBytes = buildPdfFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "converted.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "pdf_to_docx": {
+            const base64 = payload.base64 || payload.contentBase64 || "";
+            if (!base64) return jsonResponse({ error: "missing-file" }, 400);
+            const text = extractTextFromPdfBase64(base64);
+            if (!text) return jsonResponse({ error: "could-not-read-pdf" }, 400);
+            const docxBase64 = buildDocxFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "converted.docx"), contentBase64: docxBase64, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+            break;
+          }
+          case "create_docx": {
+            const text = String(payload.text || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            response = { filename: sanitizeFilename(payload.filename || "document.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+            break;
+          }
+          case "quotation_generator": {
+            const client = payload.client || "Client";
+            const amount = payload.amount || "0.00";
+            const text = String(payload.text || `Quotation\nClient: ${client}\nAmount: ${amount}\nTerms: Net 7 days`);
+            response = { filename: sanitizeFilename(payload.filename || "quotation.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+            break;
+          }
+          case "receipt_generator": {
+            const client = payload.client || "Client";
+            const amount = payload.amount || "0.00";
+            const text = String(payload.text || `Receipt\nReceived from: ${client}\nAmount: ${amount}\nDate: ${new Date().toISOString().slice(0, 10)}`);
+            response = { filename: sanitizeFilename(payload.filename || "receipt.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+            break;
+          }
+          case "invoice_pdf": {
+            const text = String(payload.text || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const pdfBytes = buildPdfFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "invoice.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "reminder_generator": {
+            const text = String(payload.text || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const pdfBytes = buildPdfFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "reminder.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "tally_xml": {
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+            if (!rows.length) return jsonResponse({ error: "missing-rows" }, 400);
+            const xml = buildTallyXml(rows.map((row) => ({ client: row.client || row[0] || "Client", amount: Number(row.amount || row[2] || 0), due: new Date(row.due || row[3] || Date.now()), invoiceNumber: row.invoiceNumber || row[0] || "INV-001" })), payload.companyName || "QuickFix Data");
+            response = { filename: sanitizeFilename(payload.filename || "tally-import.xml"), contentBase64: bytesToBase64(new TextEncoder().encode(xml)), mimeType: "application/xml" };
+            break;
+          }
+          case "gst_export": {
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+            if (!rows.length) return jsonResponse({ error: "missing-rows" }, 400);
+            const csvRows = [["Invoice Number", "Client", "Amount", "GST", "Total"]].concat(rows.map((row) => [row.invoiceNumber || row[0] || "", row.client || row[1] || "", row.amount || row[2] || "", row.gst || row[3] || "", row.total || row[4] || ""]));
+            response = { filename: sanitizeFilename(payload.filename || "gst-export.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows(csvRows))), mimeType: "text/csv" };
+            break;
+          }
+          case "payment_reminder": {
+            const text = String(payload.text || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const pdfBytes = buildPdfFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "payment-reminder.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          default:
+            return jsonResponse({ error: "unsupported-tool" }, 400);
+        }
+        return jsonResponse(response);
+      } catch (err) {
+        await logError(env, `tool:${toolName}`, err && err.stack ? err.stack : err);
+        return jsonResponse({ error: err && err.message ? err.message : String(err) }, 500);
+      }
     }
 
     // --- get_payment_info (UPI QR for a one-time session purchase) ---
