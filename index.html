@@ -968,6 +968,12 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
 
     <div id="optionLocks" class="option-locks"></div>
 
+    <div id="freePreviewBox" style="display:none; margin-top:12px; padding:12px; border:1px dashed var(--line, #ccc); border-radius:6px; background:var(--paper-dim);">
+      <strong>Free preview — first 3 rows</strong>
+      <p class="tool-hint" style="margin-top:6px; margin-bottom:8px;">This preview is free so you can confirm everything looks right before paying. The full results unlock after payment or subscription.</p>
+      <textarea readonly style="width:100%; min-height:90px; font-family:monospace; font-size:0.86rem;"></textarea>
+    </div>
+
     <div class="unlock-cta">
       <div id="priceBreakdown" class="price-breakdown"></div>
       <div class="price-line">Total: <span class="amt" id="priceAmt">—</span></div>
@@ -1109,6 +1115,17 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
   <p class="sub">
     Because delivery is digital, refunds are handled case-by-case; if something doesn't look right please contact me within 24 hours of delivery and I'll work it out. All payment claims and confirmations are logged to keep a dispute-proof record.
   </p>
+  <h4 style="margin-top:18px;">Refund &amp; Dispute Policy</h4>
+  <p class="sub">
+    Eligibility: Refunds are considered when the delivered work materially differs from the agreed scope, or a confirmed payment cannot be verified. Please contact me within 24 hours of delivery with your UTR/reference and a short description of the issue.
+  </p>
+  <p class="sub">
+    Processing: Refund requests are reviewed promptly; eligible refunds are processed within 5 business days and logged in our payment records. If a payment dispute arises, our permanent transaction log (accessible to the site owner) provides the information needed to reconcile the claim.
+  </p>
+  <h4 style="margin-top:12px;">Subscription Cancellation</h4>
+  <p class="sub">
+    You can cancel a monthly subscription at any time by replying to your renewal reminder email or using the contact form. Cancellation stops future renewals; access to the monthly plan continues until the paid period expires. For help cancelling, contact support via the form or email.
+  </p>
   <p class="sub">
     Client names, emails, and amounts in your file are used only to generate the cleaned data, invoices, and reminders you asked for. They are never sold, shared with third parties, or used for anything beyond completing your order. Payment is made directly to our UPI ID — no card or bank login details are ever entered on or seen by this site.
   </p>
@@ -1182,7 +1199,7 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
       const data = await res.json();
       if (res.ok && data.sent) {
         submitBtn.textContent = 'Sent ✓';
-        note.textContent = "Got it — I'll reply to your email within a few hours.";
+        note.textContent = "Got it — I'll reply to your email within a few hours. If I'm unavailable, I aim to reply within 48 hours.";
         note.className = 'contact-note ok';
         contactForm.reset();
         return;
@@ -1196,7 +1213,7 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
       const mailBody = encodeURIComponent(`${fullMessage}\n\nReply to: ${email}`);
       const mailtoUrl = `mailto:quickfixdata@gmail.com?subject=${subject}&body=${mailBody}`;
 
-      note.innerHTML = `Couldn't send automatically — <a href="${mailtoUrl}">try opening your email app</a>, or copy your message below and send it any way you like:`;
+      note.innerHTML = `Couldn't send automatically — <a href="${mailtoUrl}">try opening your email app</a>, or copy your message below and send it any way you like. If I'm unavailable, I aim to reply within 48 hours.`;
       note.className = 'contact-note err';
 
       const copyBox = document.createElement('div');
@@ -1669,6 +1686,16 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       document.getElementById('priceAmt').textContent = `₹${currentPrice}`;
       renderPriceBreakdown(result.priceBreakdown);
       renderOptionLocks({ clean: false, invoice: false, reminder: false });
+
+      // Show a free preview of the first 3 processed rows before payment
+      const previewBox = document.getElementById('freePreviewBox');
+      if (previewBox) previewBox.style.display = 'none';
+      if (result.previewRows && result.previewRows.length) {
+        if (previewBox) {
+          previewBox.querySelector('textarea').value = result.previewRows.join('\n');
+          previewBox.style.display = 'block';
+        }
+      }
 
       lockedPanel.style.display = 'block';
       lockedPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2409,6 +2436,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     wrap.className = 'chat-msg bot';
     wrap.innerHTML = `If nothing opened, <a href="${mailtoUrl}">click here</a>, or copy this and send it any way you like:<br>
       <textarea readonly style="width:100%; min-height:60px; font-size:0.78rem; margin-top:6px;">${message}\n\nReply to: ${email || '(not given)'}\nSend to: quickfixdata@gmail.com</textarea>
+      <div style="margin-top:6px; font-size:0.82rem; color:#666;">If I'm unavailable, I aim to reply within 48 hours.</div>
       <button type="button" id="chatCopyBtn" style="margin-top:4px; font-size:0.78rem;">Copy message</button>`;
     chatBody.appendChild(wrap);
     chatBody.scrollTop = chatBody.scrollHeight;
@@ -2435,7 +2463,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       });
       const data = await res.json();
       if (res.ok && data.sent) {
-        addChatMsg("Got it — that's on its way to me. I'll reply within an hour, here or by email.", 'bot');
+        addChatMsg("Got it — that's on its way to me. I'll reply within an hour, here or by email. If I'm unavailable, I aim to reply within 48 hours.", 'bot');
       } else {
         // Not configured or send failed server-side — fall back, with a
         // guaranteed-working copy option alongside the mailto attempt.

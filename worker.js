@@ -207,6 +207,12 @@ function jsonResponse(obj, status = 200, env) {
   });
 }
 
+// Support / fallback message used in user-facing emails and contact copy.
+function supportFallbackText(env) {
+  const contact = env && env.OWNER_EMAIL ? ` or reply to ${env.OWNER_EMAIL}` : "";
+  return `\n\nIf I'm unavailable, I aim to reply within 48 hours${contact}. For urgent issues, please include 'URGENT' in your subject.`;
+}
+
 // Constant-time string comparison — plain `===` on secrets leaks timing
 // information an attacker can use to guess the key byte-by-byte. This
 // isn't the only defense (rate limiting below is the bigger one for a
@@ -553,6 +559,147 @@ function invoiceToPdfBase64(invoiceText) {
   return bytesToBase64(pdfBytes);
 }
 
+/* ---------------- Minimal ZIP / XLSX / DOCX builders (no external deps) ---------------- */
+// CRC32 (table-based) for ZIP central directory entries
+const CRC32_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[i] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(buf) {
+  let crc = 0 ^ -1;
+  for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ buf[i]) & 0xff];
+  return (crc ^ -1) >>> 0;
+}
+
+function utf8Bytes(str) {
+  return new TextEncoder().encode(str);
+}
+
+// Build a ZIP with stored (uncompressed) entries. Returns Uint8Array.
+function buildZip(entries) {
+  // entries: [{name: 'path/to', data: Uint8Array}]
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const e of entries) {
+    const nameBytes = utf8Bytes(e.name);
+    const data = e.data instanceof Uint8Array ? e.data : utf8Bytes(String(e.data || ""));
+    const crc = crc32(data);
+    const size = data.length;
+
+    // local file header
+    const lf = new Uint8Array(30 + nameBytes.length + size);
+    let p = 0;
+    const dv = new DataView(lf.buffer);
+    dv.setUint32(p, 0x04034b50, true); p += 4; // local file header signature
+    dv.setUint16(p, 20, true); p += 2; // version needed
+    dv.setUint16(p, 0, true); p += 2; // general purpose
+    dv.setUint16(p, 0, true); p += 2; // compression (0 = store)
+    dv.setUint16(p, 0, true); p += 2; // mod time
+    dv.setUint16(p, 0, true); p += 2; // mod date
+    dv.setUint32(p, crc, true); p += 4; // crc32
+    dv.setUint32(p, size, true); p += 4; // compressed size
+    dv.setUint32(p, size, true); p += 4; // uncompressed size
+    dv.setUint16(p, nameBytes.length, true); p += 2; // file name length
+    dv.setUint16(p, 0, true); p += 2; // extra len
+    lf.set(nameBytes, p); p += nameBytes.length;
+    lf.set(data, p);
+
+    localParts.push(lf);
+
+    // central directory header
+    const ch = new Uint8Array(46 + nameBytes.length);
+    const cdv = new DataView(ch.buffer);
+    let q = 0;
+    cdv.setUint32(q, 0x02014b50, true); q += 4; // central file header signature
+    cdv.setUint16(q, 0x14, true); q += 2; // version made by
+    cdv.setUint16(q, 20, true); q += 2; // version needed
+    cdv.setUint16(q, 0, true); q += 2; // gp bit
+    cdv.setUint16(q, 0, true); q += 2; // compression
+    cdv.setUint16(q, 0, true); q += 2; // mod time
+    cdv.setUint16(q, 0, true); q += 2; // mod date
+    cdv.setUint32(q, crc, true); q += 4; // crc32
+    cdv.setUint32(q, size, true); q += 4; // comp size
+    cdv.setUint32(q, size, true); q += 4; // uncomp size
+    cdv.setUint16(q, nameBytes.length, true); q += 2; // name len
+    cdv.setUint16(q, 0, true); q += 2; // extra len
+    cdv.setUint16(q, 0, true); q += 2; // file comment len
+    cdv.setUint16(q, 0, true); q += 2; // disk number
+    cdv.setUint16(q, 0, true); q += 2; // internal attrs
+    cdv.setUint32(q, 0, true); q += 4; // external attrs
+    cdv.setUint32(q, offset, true); q += 4; // relative offset
+    ch.set(nameBytes, q); q += nameBytes.length;
+
+    centralParts.push(ch);
+
+    offset += lf.length;
+  }
+
+  // end of central dir
+  const centralSize = centralParts.reduce((a, b) => a + b.length, 0);
+  const centralOffset = offset;
+  const parts = [...localParts, ...centralParts];
+  const eocd = new Uint8Array(22);
+  const edv = new DataView(eocd.buffer);
+  let r = 0;
+  edv.setUint32(r, 0x06054b50, true); r += 4; // EOCD signature
+  edv.setUint16(r, 0, true); r += 2; // disk
+  edv.setUint16(r, 0, true); r += 2; // start disk
+  edv.setUint16(r, parts.length - localParts.length, true); r += 2; // total entries on this disk
+  edv.setUint16(r, parts.length - localParts.length, true); r += 2; // total entries
+  edv.setUint32(r, centralSize, true); r += 4; // size
+  edv.setUint32(r, centralOffset, true); r += 4; // offset
+  edv.setUint16(r, 0, true); r += 2; // comment len
+
+  const total = parts.reduce((a, b) => a + b.length, 0) + eocd.length;
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const pPart of parts) { out.set(pPart, pos); pos += pPart.length; }
+  out.set(eocd, pos);
+  return out;
+}
+
+function buildXlsxFromRows(rows, sheetName = 'Sheet1') {
+  // rows: array of array of cell strings. We'll use inlineStr to avoid sharedStrings.
+  const sheetRows = rows.map((r, ri) => {
+    const cols = r.map((c, ci) => `<c r="${String.fromCharCode(65 + ci)}${ri + 1}" t="inlineStr"><is><t>${escapeXml(String(c || ''))}</t></is></c>`).join('');
+    return `<row r="${ri + 1}">${cols}</row>`;
+  }).join('');
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`;
+
+  const files = [
+    { name: '[Content_Types].xml', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n<Default Extension="xml" ContentType="application/xml"/>\n<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>\n<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>\n</Types>') },
+    { name: '_rels/.rels', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="/xl/workbook.xml"/>\n</Relationships>') },
+    { name: 'xl/workbook.xml', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets><sheet name="' + escapeXml(sheetName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>\n</Relationships>') },
+    { name: 'xl/worksheets/sheet1.xml', data: utf8Bytes(sheetXml) },
+    { name: 'xl/styles.xml', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders></styleSheet>') }
+  ];
+  const zip = buildZip(files);
+  return bytesToBase64(zip);
+}
+
+function buildDocxFromText(text) {
+  const body = escapeXml(String(text || '')).split('\n').map((p) => `<w:p><w:r><w:t xml:space="preserve">${p}</w:t></w:r></w:p>`).join('');
+  const docXml = `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr/></w:body></w:document>`;
+  const files = [
+    { name: '[Content_Types].xml', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>') },
+    { name: '_rels/.rels', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="/word/document.xml"/></Relationships>') },
+    { name: 'word/document.xml', data: utf8Bytes(docXml) },
+    { name: 'word/_rels/document.xml.rels', data: utf8Bytes('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>') }
+  ];
+  const zip = buildZip(files);
+  return bytesToBase64(zip);
+}
+
+/* ---------------- End ZIP/XLSX/DOCX helpers ---------------- */
+
 /* ---------------- Core pipeline ---------------- */
 
 function runFullPipeline(csvText, opts) {
@@ -767,8 +914,9 @@ function uniqueAmountFor(baseAmountInr, idString) {
 }
 
 function generatePaymentReferenceCode(prefix, idString) {
-  const clean = String(idString || "").replace(/[^A-Za-z0-9]/g, "");
-  return `${prefix}-${clean.slice(0, 12)}`;
+  const seed = String(idString || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "X";
+  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
+  return `${prefix}-${seed}${suffix}`;
 }
 
 async function findClaimsByUtr(env, utr) {
@@ -833,7 +981,7 @@ async function findClaimsByReferenceCode(env, referenceCode) {
 
 function extractPaymentReferenceCode(text) {
   if (!text) return null;
-  const match = String(text).match(/\bQFD(?:-SUB)?-[A-Za-z0-9]{4,16}\b/i);
+  const match = String(text).match(/\bQFD(?:-SUB)?-[A-Za-z0-9]{4,32}\b/i);
   return match ? match[0].toUpperCase() : null;
 }
 
@@ -1545,7 +1693,7 @@ export default {
                 `Sender: ${senderEmail}\nPending job: ${pendingId}\nUTR: ${utr}\n\nCheck your UPI app/bank statement, then confirm or reject in the admin panel -> Payment claims.`);
             }
             await sendEmailIfConfigured(env, senderEmail, "Got it — verifying your payment",
-              `Thanks — we've noted your reference number and are checking it against our records. You'll get your processed file by email once it's confirmed, usually within a day.`);
+              `Thanks — we've noted your reference number and are checking it against our records. You'll get your processed file by email once it's confirmed, usually within a day.` + supportFallbackText(env));
             return;
           }
         }
@@ -1556,20 +1704,20 @@ export default {
       if (dangerousAttachment) {
         await logError(env, "email-intake", `Rejected dangerous attachment: ${dangerousAttachment.filename} from ${senderEmail}`);
         await sendEmailIfConfigured(env, senderEmail, "We couldn't process your file",
-          `We received your email, but the attached file type isn't supported for security reasons. Please send a .csv file instead.`);
+          `We received your email, but the attached file type isn't supported for security reasons. Please send a .csv file instead.` + supportFallbackText(env));
         return;
       }
 
       if (!csvAttachment) {
         await sendEmailIfConfigured(env, senderEmail, "We couldn't find a file to process",
-          `We received your email but didn't find a .csv attachment. XLSX files aren't supported over email yet — please save as CSV, or use the website to upload .xlsx directly.`);
+          `We received your email but didn't find a .csv attachment. XLSX files aren't supported over email yet — please save as CSV, or use the website to upload .xlsx directly.` + supportFallbackText(env));
         return;
       }
 
       if (looksLikeBinaryGarbage(csvAttachment.content)) {
         await logError(env, "email-intake", `Binary/corrupted attachment from ${senderEmail}: ${csvAttachment.filename}`);
         await sendEmailIfConfigured(env, senderEmail, "We couldn't process your file",
-          `The attached file doesn't look like a valid CSV. Please double-check and resend.`);
+          `The attached file doesn't look like a valid CSV. Please double-check and resend.` + supportFallbackText(env));
         return;
       }
 
@@ -1579,7 +1727,7 @@ export default {
       const emailLineCount = (csvAttachment.content.match(/\n/g) || []).length + 1;
       if (csvAttachment.content.length > MAX_CSV_BYTES || emailLineCount > MAX_CSV_ROWS) {
         await sendEmailIfConfigured(env, senderEmail, "Your file is too large to process this way",
-          `That file is bigger than we can safely process over email (limit: 8MB / 60,000 rows). Please use the website instead, or split it into smaller files.`);
+          `That file is bigger than we can safely process over email (limit: 8MB / 60,000 rows). Please use the website instead, or split it into smaller files.` + supportFallbackText(env));
         return;
       }
 
@@ -1623,12 +1771,12 @@ export default {
           await sendEmailIfConfigured(env, senderEmail, "Pay to process your file",
             `Thanks for your file! To process it, pay Rs. ${amount} to ${payeeName} (${upiId}) — exact amount matters, it's how we match your payment — using the attached QR code with any UPI app (GPay, PhonePe, Paytm, etc.), or open this link on your phone: ${upiUri}\n\n` +
             `Double-check the name shown in your UPI app says "${payeeName}" before confirming payment.\n\n` +
-            `After paying, reply to this email with just your UPI reference number (UTR) — for example: "UTR: 123456789012". Once we confirm it, your cleaned data, invoices, and reminders will be emailed to you automatically — no need to resend the file.`,
+            `After paying, reply to this email with just your UPI reference number (UTR) — for example: "UTR: 123456789012". Once we confirm it, your cleaned data, invoices, and reminders will be emailed to you automatically — no need to resend the file.` + supportFallbackText(env),
             qrBase64, "pay-via-upi.png");
         } catch (err) {
           await logError(env, "email-intake-qr", err && err.stack ? err.stack : `Failed to create UPI QR for ${senderEmail}`);
           await sendEmailIfConfigured(env, senderEmail, "We hit a snag",
-            `We received your file but couldn't set up payment right now. Please try again shortly, or reply to this email.`);
+            `We received your file but couldn't set up payment right now. Please try again shortly, or reply to this email.` + supportFallbackText(env));
           if (env.OWNER_EMAIL) await sendEmailIfConfigured(env, env.OWNER_EMAIL, "QuickFix Data: QR generation failed", `Sender: ${senderEmail}`);
         }
         return;
@@ -1644,17 +1792,17 @@ export default {
       if (session.result.anomalies && session.result.anomalies.length) {
         parts.push(`\n⚠ Heads up — ${session.result.anomalies.length} row(s) had unusually large amounts, flagged in the attached CSV. Please double-check those.`);
       }
-      await sendEmailIfConfigured(env, senderEmail, "Your file is ready", parts.join("\n"),
+      await sendEmailIfConfigured(env, senderEmail, "Your file is ready", parts.join("\n") + supportFallbackText(env),
         session.result.cleanCsv ? bytesToBase64(new TextEncoder().encode(session.result.cleanCsv)) : undefined, "cleaned_data.csv");
 
       for (let i = 0; i < (session.result.invoices || []).length; i++) {
         const to = session.result.invoiceEmails[i] || senderEmail;
-        await sendEmailIfConfigured(env, to, "Your Invoice", session.result.invoices[i], invoiceToPdfBase64(session.result.invoices[i]), "invoice.pdf");
+        await sendEmailIfConfigured(env, to, "Your Invoice", session.result.invoices[i] + supportFallbackText(env), invoiceToPdfBase64(session.result.invoices[i]), "invoice.pdf");
       }
 
       const reportPdf = buildReportPdf(session.result.report, session.result.anomalies, await computeFileFingerprint(csvAttachment.content));
       await sendEmailIfConfigured(env, senderEmail, "Your Data Processing & Safety Report",
-        `A visual summary of exactly what was checked and done with your file.`,
+        `A visual summary of exactly what was checked and done with your file.` + supportFallbackText(env),
         bytesToBase64(reportPdf), "safety-report.pdf");
     } catch (err) {
       // Anything unexpected: apologize to the client, alert the admin
@@ -1691,16 +1839,16 @@ async function deliverConfirmedEmailJob(env, pendingId, utr) {
   await logTransaction(env, { type: "upi-manual-email", isAdmin: false, email: pending.senderEmail, amount: session.price, referenceId: utr, fileHash: await computeFileFingerprint(pending.csvText) });
 
   await sendEmailIfConfigured(env, pending.senderEmail, "Payment confirmed — your file is ready",
-    `Thanks! Your file (${session.result.totalRows} row(s)) has been processed — see attached.`,
+    `Thanks! Your file (${session.result.totalRows} row(s)) has been processed — see attached.` + supportFallbackText(env),
     session.result.cleanCsv ? bytesToBase64(new TextEncoder().encode(session.result.cleanCsv)) : undefined, "cleaned_data.csv");
   for (let i = 0; i < (session.result.invoices || []).length; i++) {
     const to = session.result.invoiceEmails[i] || pending.senderEmail;
-    await sendEmailIfConfigured(env, to, "Your Invoice", session.result.invoices[i], invoiceToPdfBase64(session.result.invoices[i]), "invoice.pdf");
+    await sendEmailIfConfigured(env, to, "Your Invoice", session.result.invoices[i] + supportFallbackText(env), invoiceToPdfBase64(session.result.invoices[i]), "invoice.pdf");
   }
 
   const reportPdf = buildReportPdf(session.result.report, session.result.anomalies, await computeFileFingerprint(pending.csvText));
   await sendEmailIfConfigured(env, pending.senderEmail, "Your Data Processing & Safety Report",
-    `A visual summary of exactly what was checked and done with your file.`,
+    `A visual summary of exactly what was checked and done with your file.` + supportFallbackText(env),
     bytesToBase64(reportPdf), "safety-report.pdf");
 
   await env.SESSIONS.delete(`pending-email:${pendingId}`);
@@ -1748,17 +1896,17 @@ async function executeConfirmedClaim(env, kind, id, source) {
       const emailJobs = [];
       (session.result.invoices || []).forEach((inv, i) => {
         const to = (session.result.invoiceEmails || [])[i];
-        if (to) emailJobs.push(sendEmailIfConfigured(env, to, "Your Invoice", inv, invoiceToPdfBase64(inv), "invoice.pdf"));
+        if (to) emailJobs.push(sendEmailIfConfigured(env, to, "Your Invoice", inv + supportFallbackText(env), invoiceToPdfBase64(inv), "invoice.pdf"));
       });
       (session.result.reminders || []).forEach((rem, i) => {
         const to = (session.result.reminderEmails || [])[i];
-        if (to) emailJobs.push(sendEmailIfConfigured(env, to, "Payment Reminder", rem));
+        if (to) emailJobs.push(sendEmailIfConfigured(env, to, "Payment Reminder", rem + supportFallbackText(env)));
       });
       const clientEmail = (session.result.invoiceEmails || [])[0] || (session.result.reminderEmails || [])[0];
       if (clientEmail) {
         const reportPdf = buildReportPdf(session.result.report, session.result.anomalies, session.fileHash);
         emailJobs.push(sendEmailIfConfigured(env, clientEmail, "Payment confirmed — your file is unlocked",
-          `Your payment (UTR ${claim.utr}) has been confirmed and your file is unlocked — refresh the page to see your results.`,
+          `Your payment (UTR ${claim.utr}) has been confirmed and your file is unlocked — refresh the page to see your results.` + supportFallbackText(env),
           bytesToBase64(reportPdf), "safety-report.pdf"));
       }
       await Promise.all(emailJobs);
@@ -1782,7 +1930,7 @@ async function executeConfirmedClaim(env, kind, id, source) {
       isAdmin: false, email, amount: claim.amount, referenceId: claim.utr,
     });
     await sendEmailIfConfigured(env, email, "Subscription confirmed",
-      `Your monthly QuickFix Data subscription (UTR ${claim.utr}) is confirmed — enter this email on the site to unlock files for free.${isFirstMonth ? ` Your next renewal will be at the regular price of Rs. ${MONTHLY_SUB_PRICE_INR}/month.` : ""}`);
+      `Your monthly QuickFix Data subscription (UTR ${claim.utr}) is confirmed — enter this email on the site to unlock files for free.${isFirstMonth ? ` Your next renewal will be at the regular price of Rs. ${MONTHLY_SUB_PRICE_INR}/month.` : ""}` + supportFallbackText(env));
     await env.SESSIONS.delete(claimKey);
     return { status: 200, body: { status: "ok", active: true } };
   }
@@ -1917,7 +2065,7 @@ async function sendMembershipRenewalReminders(env) {
       const upiUri = buildUpiUri(upiId, payeeName, amount, note);
       const qrBase64 = await fetchQrPngBase64(upiUri);
       await sendEmailIfConfigured(env, email, "Your QuickFix Data subscription renews soon",
-        `Your monthly subscription expires in about ${Math.ceil(secondsLeft / 86400)} day(s). To keep it active, pay Rs. ${amount} to ${payeeName} (${upiId}) using the attached QR code with any UPI app, then reply to this email with your UTR and the unique payment note shown in the QR (or renew from the site).`,
+        `Your monthly subscription expires in about ${Math.ceil(secondsLeft / 86400)} day(s). To keep it active, pay Rs. ${amount} to ${payeeName} (${upiId}) using the attached QR code with any UPI app, then reply to this email with your UTR and the unique payment note shown in the QR (or renew from the site).` + supportFallbackText(env),
         qrBase64, "renew-via-upi.png");
     } catch (err) {
       await logError(env, "membership-renewal-reminder", err && err.stack ? err.stack : err);
@@ -1989,6 +2137,11 @@ async function createSessionFromCsv(env, csvText, opts, memberEmail, ip, apiKeyL
     const unlocked = isMember
       ? { clean: !!chosenOpts.clean, invoice: !!chosenOpts.invoice, reminder: !!chosenOpts.reminder }
       : { clean: false, invoice: false, reminder: false };
+    // Provide a free preview of the first 3 processed rows for non-members
+    const previewRows = (result && result.cleanCsv)
+      ? result.cleanCsv.split(/\r?\n/).slice(1, 4).filter((l) => l && l.trim().length > 0)
+      : [];
+    if (!result.previewRows) result.previewRows = previewRows;
     const session = { result, unlocked, chosenOpts, price: isMember ? 0 : price, createdAt: Date.now(), fileHash, sourceLabel: apiKeyLabel || null };
     if (isMember) await assignInvoiceNumbers(env, session);
 
@@ -2004,6 +2157,7 @@ async function createSessionFromCsv(env, csvText, opts, memberEmail, ip, apiKeyL
         isMember,
         expiresIn: SESSION_TTL_SECONDS,
         cleanCsv: isMember && unlocked.clean ? result.cleanCsv : undefined,
+        previewRows: !isMember ? (result.previewRows || []) : undefined,
         invoices: isMember && unlocked.invoice ? session.result.invoices : undefined,
         reminders: isMember && unlocked.reminder ? result.reminders : undefined,
         report: isMember ? result.report : undefined,
@@ -2156,6 +2310,76 @@ async function handleAction(action, body, request, env) {
       return jsonResponse({ xml });
     }
 
+    // --- export_csv_pdf : convert a CSV (or session) into a simple PDF
+    if (action === "export_csv_pdf") {
+      const { sessionId, csvText, filename } = body;
+      let csv = csvText;
+      if (!csv && sessionId) {
+        const raw = await env.SESSIONS.get(`session:${sessionId}`);
+        if (!raw) return jsonResponse({ error: "session-not-found" }, 404);
+        const session = JSON.parse(raw);
+        csv = session.result && session.result.cleanCsv ? session.result.cleanCsv : null;
+      }
+      if (!csv) return jsonResponse({ error: "missing-csv" }, 400);
+      const lines = String(csv).split(/\r?\n/).filter((l) => l.length > 0).slice(0, 2000); // safety cap
+      const pdf = buildSimplePdf(lines);
+      return jsonResponse({ filename: (filename || 'export.pdf'), contentBase64: bytesToBase64(pdf) });
+    }
+
+    // --- export_invoices : export invoice records as CSV or XLSX
+    if (action === "export_invoices") {
+      const { sessionId, format } = body;
+      if (!sessionId) return jsonResponse({ error: "missing-session" }, 400);
+      const raw = await env.SESSIONS.get(`session:${sessionId}`);
+      if (!raw) return jsonResponse({ error: "session-not-found-or-expired" }, 404);
+      const session = JSON.parse(raw);
+      if (!session.result || !session.result.invoiceRecords || !session.result.invoiceRecords.length) return jsonResponse({ error: "no-invoices" }, 400);
+      const rows = [['Client','Email','Amount','Due','InvoiceNumber']].concat(session.result.invoiceRecords.map(r => [r.client||'', r.email||'', String(r.amount||''), r.due ? (new Date(r.due)).toISOString().slice(0,10) : '', r.invoiceNumber || '']));
+      if (!format || format === 'csv') {
+        const csv = rows.map(row => row.map(csvCell).join(',')).join('\n');
+        return jsonResponse({ filename: 'invoices.csv', contentBase64: bytesToBase64(new TextEncoder().encode(csv)) });
+      } else if (format === 'xlsx') {
+        const base64 = buildXlsxFromRows(rows, 'Invoices');
+        return jsonResponse({ filename: 'invoices.xlsx', contentBase64: base64 });
+      } else {
+        return jsonResponse({ error: 'unsupported-format' }, 400);
+      }
+    }
+
+    // --- merge_files : merge multiple CSVs (or CSV-converted Excel) into one
+    if (action === 'merge_files') {
+      const { files } = body; // expect [{ type: 'csv'|'xlsx', content: <string> }]
+      if (!Array.isArray(files) || !files.length) return jsonResponse({ error: 'missing-files' }, 400);
+      const allRows = [];
+      let header = null;
+      for (const f of files) {
+        if (!f || !f.type || !f.content) continue;
+        if (f.type === 'csv') {
+          const txt = String(f.content);
+          const parts = parseCsv(txt);
+          const h = parts.headers;
+          const data = parts.dataLines.map(l => parseCsvLine(l));
+          if (!header) header = h;
+          // map to normalized CSV lines (raw)
+          for (const d of data) allRows.push(d.map((c,i) => csvCell(c)).join(','));
+        } else if (f.type === 'xlsx') {
+          // Server-side XLSX merging isn't robust without a proper parser.
+          // Ask the client to convert to CSV first (client already includes XLSX lib).
+          return jsonResponse({ error: 'xlsx-merge-not-supported-server-side', reason: 'Convert each .xlsx to CSV on the client before sending' }, 400);
+        }
+      }
+      const out = [(header || []).map(h => csvCell(h)).join(','), ...allRows].join('\n');
+      return jsonResponse({ filename: 'merged.csv', contentBase64: bytesToBase64(new TextEncoder().encode(out)) });
+    }
+
+    // --- generate_docx : build a simple DOCX from provided text
+    if (action === 'generate_docx') {
+      const { text, filename } = body;
+      if (!text) return jsonResponse({ error: 'missing-text' }, 400);
+      const base64 = buildDocxFromText(text);
+      return jsonResponse({ filename: (filename || 'document.docx'), contentBase64: base64 });
+    }
+
     // --- get_payment_info (UPI QR for a one-time session purchase) ---
     if (action === "get_payment_info") {
       const { upiId, payeeName } = resolveUpiIdentity(env);
@@ -2171,35 +2395,61 @@ async function handleAction(action, body, request, env) {
       if (!session.price) return jsonResponse({ error: "nothing-to-pay" }, 400);
 
           const amount = uniqueAmountFor(session.price, sessionId);
-      const referenceCode = generatePaymentReferenceCode("QFD", sessionId);
-      const note = `${referenceCode}`;
-      const upiUri = buildUpiUri(upiId, payeeName, amount, note);
 
-      const now = Date.now();
-      session.paymentInfo = session.paymentInfo || { firstRequestedAt: now, extensions: 0, referenceCode };
-      if (!session.paymentInfo.firstRequestedAt) session.paymentInfo.firstRequestedAt = now;
-      if (session.paymentInfo.firstRequestedAt + PAYMENT_INFO_MAX_WINDOW_SECONDS * 1000 < now) {
-        return jsonResponse({ error: "payment-window-expired" }, 410);
-      }
-      if (session.paymentInfo.extensions >= PAYMENT_INFO_MAX_EXTENSIONS) {
-        return jsonResponse({ error: "payment-window-locked" }, 429);
-      }
-      session.paymentInfo.extensions += 1;
-      await env.SESSIONS.put(`session:${sessionId}`, JSON.stringify(session), { expirationTtl: PAYMENT_INFO_MAX_WINDOW_SECONDS });
-      await logTransaction(env, {
-        type: "payment-info-extension",
-        isAdmin: false,
-        email: (session.result.invoiceEmails || [])[0] || (session.result.reminderEmails || [])[0] || "",
-        amount: session.price,
-        referenceId: referenceCode,
-        sessionId,
-        fileHash: session.fileHash || null,
-      });
-      if (session.paymentInfo.extensions > 1) {
-        await logError(env, "payment-window-extended-multiple-times", `Session ${sessionId} extended ${session.paymentInfo.extensions} times, first requested at ${new Date(session.paymentInfo.firstRequestedAt).toISOString()}`);
-      }
+          const now = Date.now();
+          session.paymentInfo = session.paymentInfo || {};
+          if (!session.paymentInfo.referenceCode) session.paymentInfo.referenceCode = generatePaymentReferenceCode("QFD", sessionId);
+          if (!session.paymentInfo.firstRequestedAt) session.paymentInfo.firstRequestedAt = now;
+          if (!session.paymentInfo.extensions) session.paymentInfo.extensions = 0;
+          if (session.paymentInfo.firstRequestedAt + PAYMENT_INFO_MAX_WINDOW_SECONDS * 1000 < now) {
+            return jsonResponse({ error: "payment-window-expired" }, 410);
+          }
+          if (session.paymentInfo.extensions >= PAYMENT_INFO_MAX_EXTENSIONS) {
+            return jsonResponse({ error: "payment-window-locked" }, 429);
+          }
+          session.paymentInfo.extensions += 1;
+          await env.SESSIONS.put(`session:${sessionId}`, JSON.stringify(session), { expirationTtl: PAYMENT_INFO_MAX_WINDOW_SECONDS });
 
-      return jsonResponse({ upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note, referenceCode, payeeVpa: upiId, payeeName });
+          const referenceCode = session.paymentInfo.referenceCode;
+          const note = `${referenceCode}`;
+          const upiUri = buildUpiUri(upiId, payeeName, amount, note);
+
+          await logTransaction(env, {
+            type: "payment-info-extension",
+            isAdmin: false,
+            email: (session.result.invoiceEmails || [])[0] || (session.result.reminderEmails || [])[0] || "",
+            amount: session.price,
+            referenceId: referenceCode,
+            sessionId,
+            fileHash: session.fileHash || null,
+          });
+          if (session.paymentInfo.extensions > 1) {
+            await logError(env, "payment-window-extended-multiple-times", `Session ${sessionId} extended ${session.paymentInfo.extensions} times, first requested at ${new Date(session.paymentInfo.firstRequestedAt).toISOString()}`);
+          }
+
+          // Optionally create a Razorpay order (Cards/NetBanking/Wallets) if credentials provided
+          let razorpayOrder = null;
+          try {
+            if (env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET) {
+              const rpAmount = Math.round(amount * 100); // paise
+              const resp = await fetch('https://api.razorpay.com/v1/orders', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Basic ' + btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`)
+                },
+                body: JSON.stringify({ amount: rpAmount, currency: 'INR', receipt: referenceCode, payment_capture: 1 })
+              });
+              if (resp.ok) {
+                razorpayOrder = await resp.json();
+              }
+            }
+          } catch (e) {
+            // non-fatal: leave razorpayOrder null if creation fails
+            await logError(env, 'razorpay-order-failed', e && e.stack ? e.stack : String(e));
+          }
+
+          return jsonResponse({ upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note, referenceCode, payeeVpa: upiId, payeeName, razorpayOrder, razorpayKeyId: env.RAZORPAY_KEY_ID || null });
     }
 
     // --- submit_payment_claim (client reports the UTR after paying via QR) ---
@@ -2342,7 +2592,19 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: auth.error }, auth.status);
       }
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
+      if (!ok) {
+        await logError(env, "unlock-rate-limited", `Admin unlock action rate-limited from ${ip}`);
+        await logTransaction(env, {
+          type: "unlock-failed",
+          isAdmin: true,
+          email: "",
+          amount: 0,
+          referenceId: "rate-limited",
+          sessionId: body.sessionId || null,
+          fileHash: null,
+        });
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
       const { sessionId, options } = body;
       if (!sessionId) return jsonResponse({ error: "missing-session" }, 400);
 
@@ -2399,7 +2661,19 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: auth.error }, auth.status);
       }
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
+      if (!ok) {
+        await logError(env, "admin-test-unlock-rate-limited", `Admin test unlock action rate-limited from ${ip}`);
+        await logTransaction(env, {
+          type: "admin-test-unlock-failed",
+          isAdmin: true,
+          email: "",
+          amount: 0,
+          referenceId: "rate-limited",
+          sessionId: body.sessionId || null,
+          fileHash: null,
+        });
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
       const { sessionId, options } = body;
       if (!sessionId) return jsonResponse({ error: "missing-session" }, 400);
 
@@ -2482,7 +2756,7 @@ async function handleAction(action, body, request, env) {
 
       if (claim.email) {
         await sendEmailIfConfigured(env, claim.email, "We couldn't confirm your payment",
-          `We couldn't match the UTR you entered (${claim.utr}) to a payment on our end${reason ? `: ${reason}` : "."}. Please double-check the UTR and resubmit, or reply to this email and we'll sort it out.`);
+          `We couldn't match the UTR you entered (${claim.utr}) to a payment on our end${reason ? `: ${reason}` : "."}. Please double-check the UTR and resubmit, or reply to this email and we'll sort it out.` + supportFallbackText(env));
       }
       await env.SESSIONS.delete(claimKey);
       return jsonResponse({ status: "ok" });
@@ -2818,7 +3092,7 @@ async function runScheduledSubscriptions(env) {
         if (sub.opts.invoice && result.invoices.length) parts.push(`\n--- INVOICES ---\n${result.invoices.join("\n\n")}`);
         if (sub.opts.reminder && result.reminders.length) parts.push(`\n--- REMINDERS ---\n${result.reminders.join("\n\n")}`);
 
-        await sendEmailIfConfigured(env, sub.email, "Your scheduled QuickFix Data run", parts.join("\n"));
+        await sendEmailIfConfigured(env, sub.email, "Your scheduled QuickFix Data run", parts.join("\n") + supportFallbackText(env));
       } catch (err) {
         await logError(env, "scheduled-subscription", err);
         continue;
