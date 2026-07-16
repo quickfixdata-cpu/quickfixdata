@@ -358,6 +358,139 @@
     .tool-options{grid-template-columns:1fr;}
   }
 
+  /* --- Priority 3 utility tools --- */
+  .utility-tools{
+    margin-top:28px;
+    border-top:1px solid var(--line);
+    padding-top:28px;
+  }
+  .utility-intro{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:18px;
+    margin-bottom:18px;
+    flex-wrap:wrap;
+  }
+  .utility-intro h3{font-size:1.25rem; margin-bottom:6px;}
+  .utility-tabs{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .utility-tab{
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--ink);
+    border-radius:4px;
+    padding:8px 12px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.78rem;
+    cursor:pointer;
+  }
+  .utility-tab.active{
+    background:var(--ink);
+    color:var(--paper);
+    border-color:var(--ink);
+  }
+  .utility-grid{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:16px;
+  }
+  .utility-card{
+    border:1px solid var(--line);
+    background:#fff;
+    border-radius:8px;
+    padding:18px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    min-width:0;
+  }
+  .utility-card[hidden]{display:none;}
+  .utility-head{
+    display:flex;
+    gap:12px;
+    align-items:flex-start;
+  }
+  .utility-icon{
+    width:36px;
+    height:36px;
+    border-radius:6px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:var(--paper-dim);
+    font-size:1.1rem;
+    flex:0 0 auto;
+  }
+  .utility-card h4{font-size:1rem; margin-bottom:3px;}
+  .utility-card p{font-size:0.82rem; color:#586070;}
+  .utility-dropzone{
+    border:2px dashed var(--line);
+    border-radius:6px;
+    padding:18px 14px;
+    cursor:pointer;
+    text-align:center;
+    transition:border-color 0.15s ease, background 0.15s ease;
+  }
+  .utility-dropzone.drag{border-color:var(--amber); background:#eef8f5;}
+  .utility-dropzone strong{display:block; font-size:0.85rem;}
+  .utility-dropzone span{display:block; margin-top:4px; font-size:0.76rem; color:#6b7078;}
+  .utility-files{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.75rem;
+    color:var(--sage);
+    min-height:1.2em;
+  }
+  .utility-fields{
+    display:grid;
+    gap:8px;
+  }
+  .utility-fields input,
+  .utility-fields textarea,
+  .utility-fields select{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:5px;
+    padding:9px 10px;
+    font-family:'Inter', sans-serif;
+    font-size:0.85rem;
+  }
+  .utility-fields textarea{
+    min-height:92px;
+    resize:vertical;
+  }
+  .utility-actions{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:auto;
+  }
+  .utility-actions .btn{padding:10px 16px; font-size:0.84rem;}
+  .utility-progress{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.76rem;
+    color:var(--sage);
+  }
+  .utility-error{
+    color:#b5493a;
+    font-size:0.8rem;
+    min-height:1.1em;
+  }
+  .utility-download{display:none;}
+  .utility-download.ready{display:inline-block;}
+  @media (max-width:900px){
+    .utility-grid{grid-template-columns:1fr;}
+  }
+  @media (max-width:520px){
+    .utility-card{padding:15px;}
+    .utility-actions .btn{width:100%; text-align:center;}
+    .utility-progress{width:100%;}
+  }
+
   /* --- Before/after proof --- */
   .before-after{
     display:grid;
@@ -1032,12 +1165,24 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
       <div class="admin-result" id="askDataResult"></div>
     </div>
   </div>
+
+  <div class="utility-tools" id="businessTools">
+    <div class="utility-intro">
+      <div>
+        <span class="step-label">04 — Document & business tools</span>
+        <h3>Quick converters and generators</h3>
+        <p class="tool-hint" style="margin-top:0;">These run directly through the existing QuickFix backend and download the finished file when processing is done.</p>
+      </div>
+      <div class="utility-tabs" id="utilityTabs" aria-label="Tool categories"></div>
+    </div>
+    <div class="utility-grid" id="utilityToolGrid"></div>
+  </div>
 </section>
 
 
 
 <section>
-  <div class="section-title">04 — Why it's low-risk for you</div>
+  <div class="section-title">05 — Why it's low-risk for you</div>
   <div class="proof">
     <div class="proof-item">
       <div class="num">Pay after</div>
@@ -1529,6 +1674,280 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   }
 
   const WORKER_URL = "https://api.quickfixdata.in";
+
+  const RUN_TOOL_CATEGORIES = ['All', 'Spreadsheet', 'Documents', 'Business'];
+  const RUN_TOOL_DEFS = [
+    { id:'csv_to_pdf', category:'Spreadsheet', icon:'📄', title:'CSV → PDF', description:'Turn a CSV export into a simple printable PDF.', accept:'.csv,.txt', input:'csvText' },
+    { id:'excel_to_pdf', category:'Spreadsheet', icon:'📊', title:'Excel → PDF', description:'Convert the first worksheet into a PDF preview.', accept:'.xlsx,.xls,.csv', input:'sheetCsv' },
+    { id:'pdf_invoice_to_csv', category:'Spreadsheet', icon:'🧾', title:'PDF Invoice → CSV', description:'Extract invoice basics into a CSV file.', accept:'.pdf,.txt', input:'pdfOrText', fields:[{ name:'text', type:'textarea', placeholder:'Optional: paste invoice text if the PDF is scanned or hard to read' }] },
+    { id:'pdf_invoice_to_excel', category:'Spreadsheet', icon:'📑', title:'PDF Invoice → Excel', description:'Extract invoice basics into an XLSX workbook.', accept:'.pdf,.txt', input:'pdfOrText', fields:[{ name:'text', type:'textarea', placeholder:'Optional: paste invoice text if the PDF is scanned or hard to read' }] },
+    { id:'merge_csv', category:'Spreadsheet', icon:'🔗', title:'Merge CSV', description:'Combine multiple CSV or Excel files into one CSV.', accept:'.csv,.xlsx,.xls', input:'multiCsv', multiple:true },
+    { id:'merge_excel', category:'Spreadsheet', icon:'📚', title:'Merge Excel', description:'Combine multiple CSV or Excel files into one XLSX.', accept:'.csv,.xlsx,.xls', input:'multiCsv', multiple:true },
+    { id:'split_csv', category:'Spreadsheet', icon:'✂️', title:'Split CSV', description:'Split a large CSV into smaller CSV files inside a ZIP.', accept:'.csv,.xlsx,.xls', input:'csvText', fields:[{ name:'chunkSize', type:'number', placeholder:'Rows per file, e.g. 100', value:'100' }] },
+    { id:'remove_duplicates', category:'Spreadsheet', icon:'🧹', title:'Remove Duplicate Rows', description:'Remove exact duplicate rows from a CSV.', accept:'.csv,.xlsx,.xls', input:'csvText' },
+    { id:'sort_rows', category:'Spreadsheet', icon:'↕️', title:'Sort Rows', description:'Sort a CSV by a column name.', accept:'.csv,.xlsx,.xls', input:'csvText', fields:[{ name:'sortColumn', type:'text', placeholder:'Column to sort by, e.g. Name' }] },
+    { id:'csv_to_excel', category:'Spreadsheet', icon:'📈', title:'CSV → Excel', description:'Convert CSV data into an XLSX workbook.', accept:'.csv,.txt', input:'csvText' },
+    { id:'excel_to_csv', category:'Spreadsheet', icon:'📉', title:'Excel → CSV', description:'Convert the first Excel worksheet to CSV.', accept:'.xlsx,.xls,.csv', input:'sheetCsv' },
+    { id:'docx_to_pdf', category:'Documents', icon:'📝', title:'DOCX → PDF', description:'Convert a Word document into a simple PDF.', accept:'.docx', input:'docxBase64' },
+    { id:'pdf_to_docx', category:'Documents', icon:'📘', title:'PDF → DOCX', description:'Extract readable PDF text into a Word document.', accept:'.pdf', input:'pdfBase64' },
+    { id:'create_docx', category:'Documents', icon:'✍️', title:'Create DOCX', description:'Create a Word document from typed or uploaded text.', accept:'.txt,.csv', input:'text', fields:[{ name:'text', type:'textarea', placeholder:'Type or paste document text here' }] },
+    { id:'quotation_generator', category:'Documents', icon:'💬', title:'Quotation Generator', description:'Generate a quotation document for a client.', accept:'.txt,.csv', input:'textOptional', fields:[{ name:'client', type:'text', placeholder:'Client name' }, { name:'amount', type:'text', placeholder:'Amount' }, { name:'text', type:'textarea', placeholder:'Optional custom quotation text' }] },
+    { id:'receipt_generator', category:'Documents', icon:'🧾', title:'Receipt Generator', description:'Generate a receipt document for a payment.', accept:'.txt,.csv', input:'textOptional', fields:[{ name:'client', type:'text', placeholder:'Client name' }, { name:'amount', type:'text', placeholder:'Amount' }, { name:'text', type:'textarea', placeholder:'Optional custom receipt text' }] },
+    { id:'invoice_pdf', category:'Business', icon:'📮', title:'Invoice PDF', description:'Generate a simple invoice PDF from text.', accept:'.txt,.csv', input:'text', fields:[{ name:'text', type:'textarea', placeholder:'Invoice text: client, amount, due date, terms' }] },
+    { id:'reminder_generator', category:'Business', icon:'📩', title:'Reminder PDF', description:'Generate a printable payment reminder PDF.', accept:'.txt,.csv', input:'text', fields:[{ name:'text', type:'textarea', placeholder:'Reminder text to put in the PDF' }] },
+    { id:'gst_export', category:'Business', icon:'🧮', title:'GST Export', description:'Create a GST-ready CSV from invoice rows.', accept:'.csv,.xlsx,.xls', input:'rowsCsv' },
+    { id:'tally_xml', category:'Business', icon:'📒', title:'Tally XML', description:'Create an XML import file for Tally.', accept:'.csv,.xlsx,.xls', input:'rowsCsv', fields:[{ name:'companyName', type:'text', placeholder:'Company name in Tally' }] },
+    { id:'payment_reminder', category:'Business', icon:'⏰', title:'Payment Reminder', description:'Generate a payment reminder PDF.', accept:'.txt,.csv', input:'text', fields:[{ name:'text', type:'textarea', placeholder:'Payment reminder text' }] },
+  ];
+
+  const runToolState = new Map();
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+  }
+
+  function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Could not read that file.'));
+      reader.readAsText(file);
+    });
+  }
+
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+      reader.onerror = () => reject(new Error('Could not read that file.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function readSpreadsheetAsCsv(file) {
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith('.csv') || lower.endsWith('.txt')) return readFileAsText(file);
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          resolve(XLSX.utils.sheet_to_csv(sheet));
+        } catch {
+          reject(new Error('Could not read that Excel file.'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Could not read that file.'));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  function base64ToBlob(base64, mimeType) {
+    const binary = atob(String(base64 || '').replace(/\s+/g, ''));
+    const chunks = [];
+    for (let i = 0; i < binary.length; i += 8192) {
+      const slice = binary.slice(i, i + 8192);
+      const bytes = new Uint8Array(slice.length);
+      for (let j = 0; j < slice.length; j++) bytes[j] = slice.charCodeAt(j);
+      chunks.push(bytes);
+    }
+    return new Blob(chunks, { type: mimeType || 'application/octet-stream' });
+  }
+
+  function downloadBase64File(base64, filename, mimeType) {
+    const url = URL.createObjectURL(base64ToBlob(base64, mimeType));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'download';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function renderUtilityTools() {
+    const tabs = document.getElementById('utilityTabs');
+    const grid = document.getElementById('utilityToolGrid');
+    if (!tabs || !grid) return;
+    tabs.innerHTML = RUN_TOOL_CATEGORIES.map((cat) => `<button type="button" class="utility-tab${cat === 'All' ? ' active' : ''}" data-cat="${cat}">${cat}</button>`).join('');
+    grid.innerHTML = RUN_TOOL_DEFS.map((tool) => `
+      <article class="utility-card" data-tool-card="${tool.id}" data-category="${tool.category}">
+        <div class="utility-head">
+          <div class="utility-icon" aria-hidden="true">${tool.icon}</div>
+          <div>
+            <h4>${escapeHtml(tool.title)}</h4>
+            <p>${escapeHtml(tool.description)}</p>
+          </div>
+        </div>
+        <div class="utility-dropzone" data-tool-drop="${tool.id}" tabindex="0" role="button">
+          <strong>Drop file${tool.multiple ? 's' : ''} here or browse</strong>
+          <span>${tool.multiple ? 'Multiple files accepted' : 'One file accepted'}: ${escapeHtml(tool.accept)}</span>
+          <input type="file" data-tool-input="${tool.id}" accept="${escapeHtml(tool.accept)}" ${tool.multiple ? 'multiple' : ''}>
+        </div>
+        <div class="utility-files" data-tool-files="${tool.id}"></div>
+        <div class="utility-fields">
+          ${(tool.fields || []).map((field) => field.type === 'textarea'
+            ? `<textarea data-tool-field="${field.name}" placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(field.value || '')}</textarea>`
+            : `<input data-tool-field="${field.name}" type="${field.type || 'text'}" placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(field.value || '')}">`
+          ).join('')}
+        </div>
+        <div class="utility-actions">
+          <button type="button" class="btn btn-primary" data-tool-run="${tool.id}">Process</button>
+          <button type="button" class="btn btn-ghost utility-download" data-tool-download="${tool.id}">Download</button>
+          <span class="utility-progress" data-tool-progress="${tool.id}">Ready</span>
+        </div>
+        <div class="utility-error" data-tool-error="${tool.id}"></div>
+      </article>
+    `).join('');
+
+    tabs.querySelectorAll('.utility-tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.querySelectorAll('.utility-tab').forEach((item) => item.classList.remove('active'));
+        tab.classList.add('active');
+        const cat = tab.dataset.cat;
+        grid.querySelectorAll('.utility-card').forEach((card) => {
+          card.hidden = cat !== 'All' && card.dataset.category !== cat;
+        });
+      });
+    });
+
+    RUN_TOOL_DEFS.forEach((tool) => bindUtilityTool(tool));
+  }
+
+  function bindUtilityTool(tool) {
+    const card = document.querySelector(`[data-tool-card="${tool.id}"]`);
+    const drop = card.querySelector(`[data-tool-drop="${tool.id}"]`);
+    const input = card.querySelector(`[data-tool-input="${tool.id}"]`);
+    const filesEl = card.querySelector(`[data-tool-files="${tool.id}"]`);
+    const runBtn = card.querySelector(`[data-tool-run="${tool.id}"]`);
+    const downloadBtn = card.querySelector(`[data-tool-download="${tool.id}"]`);
+    const progress = card.querySelector(`[data-tool-progress="${tool.id}"]`);
+    const errorEl = card.querySelector(`[data-tool-error="${tool.id}"]`);
+    runToolState.set(tool.id, { files: [], result: null });
+
+    const setFiles = (files) => {
+      const state = runToolState.get(tool.id);
+      state.files = Array.from(files || []);
+      state.result = null;
+      downloadBtn.classList.remove('ready');
+      filesEl.textContent = state.files.length ? state.files.map((file) => file.name).join(', ') : '';
+      errorEl.textContent = '';
+      progress.textContent = 'Ready';
+    };
+
+    drop.addEventListener('click', () => input.click());
+    drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('drag'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('drag');
+      setFiles(e.dataTransfer.files);
+    });
+    input.addEventListener('change', (e) => setFiles(e.target.files));
+
+    runBtn.addEventListener('click', async () => {
+      runBtn.disabled = true;
+      downloadBtn.classList.remove('ready');
+      errorEl.textContent = '';
+      progress.textContent = 'Reading input...';
+      try {
+        const payload = await buildRunToolPayload(tool, card, runToolState.get(tool.id).files);
+        progress.textContent = 'Processing...';
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'run_tool', tool: tool.id, payload }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'processing-failed');
+        runToolState.get(tool.id).result = data;
+        progress.textContent = 'Ready to download';
+        downloadBtn.classList.add('ready');
+      } catch (err) {
+        progress.textContent = 'Ready';
+        errorEl.textContent = err.message || 'Could not process this tool.';
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      const result = runToolState.get(tool.id).result;
+      if (!result) return;
+      downloadBase64File(result.contentBase64, result.filename, result.mimeType);
+    });
+  }
+
+  function toolFieldValue(card, name) {
+    return card.querySelector(`[data-tool-field="${name}"]`)?.value.trim() || '';
+  }
+
+  async function buildRunToolPayload(tool, card, files) {
+    const payload = { filename: undefined };
+    const first = files[0];
+    const textField = toolFieldValue(card, 'text');
+    if (first) payload.filename = first.name.replace(/\.[^.]+$/, '') + defaultExtensionForTool(tool.id);
+
+    if (tool.input === 'csvText') {
+      if (!first) throw new Error('Upload a CSV or Excel file first.');
+      payload.csvText = await readSpreadsheetAsCsv(first);
+    } else if (tool.input === 'sheetCsv') {
+      if (!first) throw new Error('Upload an Excel or CSV file first.');
+      payload.csvText = await readSpreadsheetAsCsv(first);
+    } else if (tool.input === 'multiCsv') {
+      if (!files.length) throw new Error('Upload at least two files.');
+      payload.files = [];
+      for (const file of files) payload.files.push({ filename: file.name, csvText: await readSpreadsheetAsCsv(file) });
+    } else if (tool.input === 'pdfBase64') {
+      if (!first) throw new Error('Upload a PDF first.');
+      payload.contentBase64 = await readFileAsBase64(first);
+    } else if (tool.input === 'pdfOrText') {
+      if (textField) payload.text = textField;
+      else if (first && first.name.toLowerCase().endsWith('.txt')) payload.text = await readFileAsText(first);
+      else if (first) payload.contentBase64 = await readFileAsBase64(first);
+      else throw new Error('Upload a PDF or paste invoice text first.');
+    } else if (tool.input === 'docxBase64') {
+      if (!first) throw new Error('Upload a DOCX file first.');
+      payload.contentBase64 = await readFileAsBase64(first);
+    } else if (tool.input === 'text' || tool.input === 'textOptional') {
+      payload.text = textField;
+      if (!payload.text && first) payload.text = await readFileAsText(first);
+      if (tool.input === 'text' && !payload.text) throw new Error('Type text or upload a text file first.');
+    } else if (tool.input === 'rowsCsv') {
+      if (!first) throw new Error('Upload a CSV or Excel file first.');
+      const csvText = await readSpreadsheetAsCsv(first);
+      payload.rows = csvToObjects(csvText);
+      if (!payload.rows.length) throw new Error('No rows found in that file.');
+    }
+
+    for (const field of tool.fields || []) {
+      const value = toolFieldValue(card, field.name);
+      if (value) payload[field.name] = value;
+    }
+    if (!payload.filename) payload.filename = defaultFilenameForTool(tool.id);
+    return payload;
+  }
+
+  function csvToObjects(csvText) {
+    const workbook = XLSX.read(csvText, { type:'string' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(sheet, { defval:'' });
+  }
+
+  function defaultExtensionForTool(toolId) {
+    if (['csv_to_pdf','excel_to_pdf','docx_to_pdf','invoice_pdf','reminder_generator','payment_reminder'].includes(toolId)) return '.pdf';
+    if (['pdf_to_docx','create_docx','quotation_generator','receipt_generator'].includes(toolId)) return '.docx';
+    if (['pdf_invoice_to_excel','merge_excel','csv_to_excel'].includes(toolId)) return '.xlsx';
+    if (toolId === 'split_csv') return '.zip';
+    if (toolId === 'tally_xml') return '.xml';
+    return '.csv';
+  }
+
+  function defaultFilenameForTool(toolId) {
+    return `${toolId.replace(/_/g, '-')}${defaultExtensionForTool(toolId)}`;
+  }
+
+  renderUtilityTools();
 
   const lockedPanel = document.getElementById('lockedPanel');
   const expiredPanel = document.getElementById('expiredPanel');
