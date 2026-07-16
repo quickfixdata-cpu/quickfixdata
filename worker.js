@@ -28,25 +28,26 @@ import PostalMime from "./vendor/postal-mime/postal-mime.js";
  * There is no payment gateway, so there is no automatic "payment
  * succeeded" webhook. Instead:
  *  1. The client picks options; the Worker computes a price and a
- *     UNIQUE amount (adds a few extra paise, e.g. ₹99 -> ₹99.07) so the
- *     amount alone is enough to spot the matching entry in your UPI
- *     app/bank statement, even with several payments in a day.
+ *     normal exact amount (e.g. ₹99.00). It also assigns a unique
+ *     payment reference code for this transaction, which is embedded in
+ *     the UPI note field and stored on the server.
  *  2. The site shows a QR code (built from a plain `upi://pay?...`
  *     link — any UPI app can scan it) with that exact amount and a
- *     reference note pre-filled. The client scans it, pays, and gets a
- *     UPI transaction reference number (UTR / RRN — a 12-ish digit
+ *     unique reference note pre-filled. The client scans it, pays, and
+ *     gets a UPI transaction reference number (UTR / RRN — a 12-ish digit
  *     number every UPI app shows after a successful payment).
  *  3. The client types that UTR into the box on the site (or replies
  *     to the email, for the email-intake flow) — this creates a
  *     "pending claim", nothing unlocks yet.
- *  4. YOU check your UPI app/bank statement for that exact unique
- *     amount, open the admin panel -> "Payment claims", and click
- *     Confirm (or Reject if it doesn't match). Confirming unlocks the
- *     client's file immediately and emails their results.
+ *  4. YOU check your UPI app/bank statement for that exact amount and
+ *     the matching payment reference note, open the admin panel ->
+ *     "Payment claims", and click Confirm (or Reject if it doesn't
+ *     match). Confirming unlocks the client's file immediately and
+ *     emails their results.
  * This is manual by design — without a payment gateway there is no
- * trustworthy automatic signal that money actually moved. The unique-
- * paise trick is what makes the manual check fast (a few seconds
- * scanning your UPI app for one specific amount) instead of tedious.
+ * trustworthy automatic signal that money actually moved. The unique
+ * reference code makes the manual check fast and collision-resistant
+ * even when two clients pay the same base amount.
  * If you later want it automatic, the real fix is a gateway that
  * supports UPI intents with server-side verification (Razorpay,
  * Cashfree, PayU, etc.) — this file makes it easy to swap back in,
@@ -172,6 +173,8 @@ function resolveUpiIdentity(env) {
 
 const MONTHLY_SUB_TTL_SECONDS = 33 * 24 * 60 * 60; // 33 days grace window past a monthly cycle
 const SESSION_TTL_SECONDS = 600; // 10 minutes
+const PAYMENT_INFO_MAX_WINDOW_SECONDS = 60 * 60; // at most 1 hour total for payment in-flight before session expires
+const PAYMENT_INFO_MAX_EXTENSIONS = 2; // avoid repeated refreshes keeping a session alive forever
 // See the long comment at the "process" action for how these two numbers
 // were actually derived (measured, not guessed) from Cloudflare Workers'
 // 128MB isolate memory ceiling.
@@ -179,6 +182,7 @@ const MAX_CSV_BYTES = 8_000_000; // 8MB
 const MAX_CSV_ROWS = 60_000;
 const RATE_LIMIT_MAX_PER_HOUR = 10;
 const ADMIN_RATE_LIMIT_MAX_PER_HOUR = 30; // NEW — every adminKey-gated action is now capped per IP
+const ADMIN_AUTH_RATE_LIMIT_MAX_PER_HOUR = 5; // extra hard limit on invalid admin key attempts per IP
 const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"; // fast + cheap, right-sized for short data lookups
 
 // If you set ALLOWED_ORIGIN (e.g. "https://yourdomain.in"), CORS locks to
@@ -707,9 +711,9 @@ function runFullPipeline(csvText, opts) {
 // client exactly what they're paying for, line by line, instead of one
 // opaque total (this was raised as a concern — a flat number with no
 // itemization can look "random" even when it's a plain deterministic
-// sum, especially once the UPI QR amount has a few extra paise added
-// for payment matching, which is unrelated to pricing and is now
-// labeled as such wherever it's shown).
+// sum). Payment matching is handled by a unique reference note (not a
+// hidden amount change), so the price shown is always the actual amount
+// the client should pay.
 function computePriceBreakdown(chosenOpts) {
   const items = [];
   if (chosenOpts.clean) items.push({ key: "clean", label: "Clean & dedupe data", price: PRICES_INR.clean });
@@ -755,16 +759,114 @@ function qrImageUrlForUpi(upiUri) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(upiUri)}`;
 }
 
-// Adds a small, DETERMINISTIC paise offset (1-98 paise) derived from the
-// session id/email so the exact same request always produces the exact
-// same amount (idempotent — refreshing the QR doesn't change what the
-// client owes), while making that amount specific enough to spot in a
-// bank/UPI statement full of other transactions.
+// Returns the exact payable amount in INR for a given transaction.
+// We no longer use the "extra paise" trick; the payment is disambiguated
+// by a unique reference code in the UPI note instead.
 function uniqueAmountFor(baseAmountInr, idString) {
-  let hash = 0;
-  for (let i = 0; i < idString.length; i++) hash = (hash * 31 + idString.charCodeAt(i)) >>> 0;
-  const extraPaise = (hash % 98) + 1; // 0.01–0.98, never .00 or a round number
-  return Math.round(baseAmountInr * 100 + extraPaise) / 100;
+  return Math.round(baseAmountInr * 100) / 100;
+}
+
+function generatePaymentReferenceCode(prefix, idString) {
+  const clean = String(idString || "").replace(/[^A-Za-z0-9]/g, "");
+  return `${prefix}-${clean.slice(0, 12)}`;
+}
+
+async function findClaimsByUtr(env, utr) {
+  if (!utr) return [];
+  const normalized = String(utr).trim().toLowerCase();
+  const list = await env.SESSIONS.list({ prefix: "claim:" });
+  const matches = [];
+  for (const key of list.keys) {
+    const raw = await env.SESSIONS.get(key.name);
+    if (!raw) continue;
+    try {
+      const claim = JSON.parse(raw);
+      if (String(claim.utr || "").trim().toLowerCase() === normalized) {
+        matches.push(claim);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return matches;
+}
+
+async function findTransactionsByReferenceId(env, referenceId) {
+  if (!referenceId) return [];
+  const normalized = String(referenceId).trim().toLowerCase();
+  const list = await env.SESSIONS.list({ prefix: "txn:" });
+  const matches = [];
+  for (const key of list.keys) {
+    const raw = await env.SESSIONS.get(key.name);
+    if (!raw) continue;
+    try {
+      const txn = JSON.parse(raw);
+      if (String(txn.referenceId || "").trim().toLowerCase() === normalized) {
+        matches.push(txn);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return matches;
+}
+
+async function findClaimsByReferenceCode(env, referenceCode) {
+  if (!referenceCode) return [];
+  const normalized = String(referenceCode).trim().toLowerCase();
+  const list = await env.SESSIONS.list({ prefix: "claim:" });
+  const matches = [];
+  for (const key of list.keys) {
+    const raw = await env.SESSIONS.get(key.name);
+    if (!raw) continue;
+    try {
+      const claim = JSON.parse(raw);
+      if (String(claim.referenceCode || "").trim().toLowerCase() === normalized) {
+        matches.push(claim);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return matches;
+}
+
+function extractPaymentReferenceCode(text) {
+  if (!text) return null;
+  const match = String(text).match(/\bQFD(?:-SUB)?-[A-Za-z0-9]{4,16}\b/i);
+  return match ? match[0].toUpperCase() : null;
+}
+
+function sanitizeTranscriptionOutput(csvText) {
+  const lines = String(csvText || "").split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  const suspiciousPatterns = [
+    /ignore previous instructions/i,
+    /ignore this/i,
+    /do not follow/i,
+    /system instructions?/i,
+    /assistant[:\-]/i,
+    /user[:\-]/i,
+    /prompt[:\-]/i,
+    /admin key/i,
+    /secret/i,
+    /openai/i,
+    /anthropic/i,
+    /claude/i,
+  ];
+  let suspicious = false;
+  const cleanLines = [];
+  for (const line of lines) {
+    if (suspiciousPatterns.some((re) => re.test(line))) {
+      suspicious = true;
+      continue;
+    }
+    if (/^(system|assistant|user|prompt|note)[:\-]/i.test(line)) {
+      suspicious = true;
+      continue;
+    }
+    cleanLines.push(line);
+  }
+  return { csv: cleanLines.join("\n"), suspicious };
 }
 
 /* ---------------- Email (Resend), now supports a PDF attachment ---------------- */
@@ -937,6 +1039,12 @@ async function transcribeLedgerImage(env, imageBase64, mediaType) {
     // despite being told not to — strip it rather than fail outright.
     text = text.replace(/^```(?:csv)?\s*/i, "").replace(/```\s*$/i, "").trim();
 
+    const sanitized = sanitizeTranscriptionOutput(text);
+    if (sanitized.suspicious) {
+      await logError(env, "photo-transcription-suspicious", "Prompt-injection-like text was removed from photo transcription output.");
+    }
+    text = sanitized.csv.trim();
+
     if (!text || text === "NO_TABLE_FOUND") return { csv: null, reason: "no-table-found" };
     if (!text.toLowerCase().startsWith("client name,")) return { csv: null, reason: "unexpected-format" };
     return { csv: text };
@@ -985,6 +1093,20 @@ async function checkRateLimit(env, ip, bucket, maxPerHour) {
   if (count >= maxPerHour) return false;
   await env.SESSIONS.put(key, String(count + 1), { expirationTtl: 3600 });
   return true;
+}
+
+async function authenticateAdmin(env, ip, adminKey, actionName) {
+  if (!env.ADMIN_KEY) return { ok: false, error: "admin-not-configured", status: 501 };
+  if (!safeEqual(adminKey, env.ADMIN_KEY)) {
+    const ok = await checkRateLimit(env, ip, "admin-auth", ADMIN_AUTH_RATE_LIMIT_MAX_PER_HOUR);
+    if (!ok) {
+      await logError(env, `${actionName}-rate-limited`, `Admin auth rate limit exceeded from ${ip}`);
+      return { ok: false, error: "rate-limited", status: 429 };
+    }
+    await logError(env, `${actionName}-invalid-admin-key`, `Invalid admin key attempt from ${ip}`);
+    return { ok: false, error: "invalid-admin-key", status: 403 };
+  }
+  return { ok: true };
 }
 
 /* ---------------- Analytics counters ---------------- */
@@ -1412,8 +1534,11 @@ export default {
           const firstToken = (textBody || "").trim().split(/\s+/)[0] || "";
           const utr = explicit ? explicit[1] : (/^[A-Za-z0-9]{6,30}$/.test(firstToken) ? firstToken : null);
           if (utr) {
+            const pendingRaw = await env.SESSIONS.get(`pending-email:${pendingId}`);
+            const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+            const referenceCode = (pending && pending.referenceCode) ? pending.referenceCode : generatePaymentReferenceCode("QFD", pendingId);
             await env.SESSIONS.put(`claim:email:${pendingId}`, JSON.stringify({
-              kind: "email", id: pendingId, utr, status: "pending", claimedAt: Date.now(), email: senderEmail,
+              kind: "email", id: pendingId, utr, referenceCode, status: "pending", claimedAt: Date.now(), email: senderEmail,
             }), { expirationTtl: 7 * 24 * 60 * 60 });
             if (env.OWNER_EMAIL) {
               await sendEmailIfConfigured(env, env.OWNER_EMAIL, "New payment claim (email) — confirm in admin panel",
@@ -1485,12 +1610,13 @@ export default {
         try {
           const price = computePrice({ clean: true, invoice: true, reminder: true });
           const pendingId = crypto.randomUUID();
-          await env.SESSIONS.put(`pending-email:${pendingId}`, JSON.stringify({ senderEmail, csvText: csvAttachment.content, opts }),
+          const referenceCode = generatePaymentReferenceCode("QFD", pendingId);
+          await env.SESSIONS.put(`pending-email:${pendingId}`, JSON.stringify({ senderEmail, csvText: csvAttachment.content, opts, referenceCode }),
             { expirationTtl: 3 * 24 * 60 * 60 }); // hold a few days awaiting payment + manual confirmation
           await env.SESSIONS.put(`pending-email-by-sender:${senderEmail}`, pendingId, { expirationTtl: 3 * 24 * 60 * 60 });
 
           const amount = uniqueAmountFor(price, pendingId);
-          const note = `QFD-${pendingId.slice(0, 8)}`;
+          const note = referenceCode;
           const upiUri = buildUpiUri(upiId, payeeName, amount, note);
           const qrBase64 = await fetchQrPngBase64(upiUri);
 
@@ -1725,6 +1851,7 @@ async function tryAutoConfirmFromBankAlert(env, emailText) {
   const extracted = extractCreditedAmount(emailText);
   if (extracted === null) return { attempted: false };
   const { amount, hadDecimal } = extracted;
+  const referenceCode = extractPaymentReferenceCode(emailText);
 
   const list = await env.SESSIONS.list({ prefix: "claim:" });
   const allClaims = [];
@@ -1732,43 +1859,39 @@ async function tryAutoConfirmFromBankAlert(env, emailText) {
     const raw = await env.SESSIONS.get(k.name);
     if (!raw) continue;
     const claim = JSON.parse(raw);
-    if (claim.status !== "pending" && claim.status !== undefined) continue; // defensive; claims are deleted on confirm/reject today, but don't assume that stays true forever
+    if (claim.status !== "pending" && claim.status !== undefined) continue;
     allClaims.push(claim);
   }
 
-  let matches = allClaims.filter((c) => Math.abs(c.amount - amount) < 0.005);
-
-  // Lenient fallback: some banks' SMS-derived alert emails truncate paise
-  // even though the actual UPI transfer carried them (the unique-paise
-  // trick depends on the paise surviving). If the alert text had no
-  // decimal point at all, try matching the whole-rupee part instead —
-  // but ONLY auto-confirm if that still narrows to exactly one claim.
-  // Multiple claims sharing a whole-rupee amount is common (that's the
-  // entire reason paise are used for disambiguation), so this fallback
-  // is deliberately conservative rather than a free-for-all.
+  let matches = [];
   let usedFallback = false;
-  if (matches.length !== 1 && !hadDecimal) {
-    const wholeMatches = allClaims.filter((c) => Math.floor(c.amount) === Math.round(amount));
-    if (wholeMatches.length === 1) { matches = wholeMatches; usedFallback = true; }
-  }
-
-  if (matches.length !== 1) {
-    // Zero matches (not one of ours) or more than one (ambiguous) —
-    // either way, do nothing automatically. Ambiguity is exactly the
-    // situation a human should resolve, not code guessing. But make
-    // sure the human actually finds out promptly instead of this
-    // silently sitting there — email the owner right away so "still
-    // needs manual confirmation" doesn't quietly turn into "forgotten."
-    if (matches.length > 1 && env.OWNER_EMAIL) {
-      await sendEmailIfConfigured(env, env.OWNER_EMAIL, "Bank alert needs manual confirmation (ambiguous match)",
-        `A forwarded bank alert for ₹${amount} matched ${matches.length} pending claims, so it wasn't auto-confirmed — please check the admin panel's Payment claims tab and confirm the right one manually.`);
+  if (referenceCode) {
+    matches = allClaims.filter((c) => String(c.referenceCode || "").trim().toLowerCase() === referenceCode.toLowerCase());
+    if (matches.length !== 1) {
+      if (matches.length > 1 && env.OWNER_EMAIL) {
+        await sendEmailIfConfigured(env, env.OWNER_EMAIL, "Bank alert needs manual confirmation (ambiguous reference code)",
+          `A forwarded bank alert contained reference code ${referenceCode} and matched ${matches.length} pending claims, so it wasn't auto-confirmed — please check the admin panel's Payment claims tab and confirm the right one manually.`);
+      }
+      return { attempted: true, matched: false, candidateCount: matches.length, amount, referenceCode };
     }
-    return { attempted: true, matched: false, candidateCount: matches.length, amount };
+  } else {
+    matches = allClaims.filter((c) => Math.abs(c.amount - amount) < 0.005);
+    if (matches.length !== 1 && !hadDecimal) {
+      const wholeMatches = allClaims.filter((c) => Math.floor(c.amount) === Math.round(amount));
+      if (wholeMatches.length === 1) { matches = wholeMatches; usedFallback = true; }
+    }
+    if (matches.length !== 1) {
+      if (matches.length > 1 && env.OWNER_EMAIL) {
+        await sendEmailIfConfigured(env, env.OWNER_EMAIL, "Bank alert needs manual confirmation (ambiguous match)",
+          `A forwarded bank alert for ₹${amount} matched ${matches.length} pending claims, so it wasn't auto-confirmed — please check the admin panel's Payment claims tab and confirm the right one manually.`);
+      }
+      return { attempted: true, matched: false, candidateCount: matches.length, amount };
+    }
   }
 
   const claim = matches[0];
   const result = await executeConfirmedClaim(env, claim.kind, claim.id, "auto-bank-email");
-  return { attempted: true, matched: result.status === 200, amount, kind: claim.kind, id: claim.id, usedFallback };
+  return { attempted: true, matched: result.status === 200, amount, kind: claim.kind, id: claim.id, usedFallback, referenceCode };
 }
 // subscription does — every renewal needs the member to actively pay
 // again. This is the honest replacement: email a fresh QR a few days
@@ -1788,11 +1911,13 @@ async function sendMembershipRenewalReminders(env) {
     const email = k.name.replace("member:", "");
     try {
       const amount = uniqueAmountFor(MONTHLY_SUB_PRICE_INR, email);
-      const note = `QFD-SUB-${email.slice(0, 10)}`;
+      const referenceCode = generatePaymentReferenceCode("QFD-SUB", `${email}-${Date.now()}`);
+      await env.SESSIONS.put(`sub-payment:${email}`, JSON.stringify({ referenceCode, amount, createdAt: Date.now() }), { expirationTtl: 7 * 24 * 60 * 60 });
+      const note = referenceCode;
       const upiUri = buildUpiUri(upiId, payeeName, amount, note);
       const qrBase64 = await fetchQrPngBase64(upiUri);
       await sendEmailIfConfigured(env, email, "Your QuickFix Data subscription renews soon",
-        `Your monthly subscription expires in about ${Math.ceil(secondsLeft / 86400)} day(s). To keep it active, pay Rs. ${amount} to ${payeeName} (${upiId}) using the attached QR code with any UPI app, then reply to this email with your UTR (or renew from the site).`,
+        `Your monthly subscription expires in about ${Math.ceil(secondsLeft / 86400)} day(s). To keep it active, pay Rs. ${amount} to ${payeeName} (${upiId}) using the attached QR code with any UPI app, then reply to this email with your UTR and the unique payment note shown in the QR (or renew from the site).`,
         qrBase64, "renew-via-upi.png");
     } catch (err) {
       await logError(env, "membership-renewal-reminder", err && err.stack ? err.stack : err);
@@ -2045,16 +2170,36 @@ async function handleAction(action, body, request, env) {
       const session = JSON.parse(raw);
       if (!session.price) return jsonResponse({ error: "nothing-to-pay" }, 400);
 
-      const amount = uniqueAmountFor(session.price, sessionId);
-      const note = `QFD-${sessionId.slice(0, 8)}`;
+          const amount = uniqueAmountFor(session.price, sessionId);
+      const referenceCode = generatePaymentReferenceCode("QFD", sessionId);
+      const note = `${referenceCode}`;
       const upiUri = buildUpiUri(upiId, payeeName, amount, note);
 
-      // Extend the session's life while payment is in flight — 10 minutes
-      // is fine for browsing, but too short for "scan, switch app, pay,
-      // come back and type the UTR". Give it an hour.
-      await env.SESSIONS.put(`session:${sessionId}`, JSON.stringify(session), { expirationTtl: 3600 });
+      const now = Date.now();
+      session.paymentInfo = session.paymentInfo || { firstRequestedAt: now, extensions: 0, referenceCode };
+      if (!session.paymentInfo.firstRequestedAt) session.paymentInfo.firstRequestedAt = now;
+      if (session.paymentInfo.firstRequestedAt + PAYMENT_INFO_MAX_WINDOW_SECONDS * 1000 < now) {
+        return jsonResponse({ error: "payment-window-expired" }, 410);
+      }
+      if (session.paymentInfo.extensions >= PAYMENT_INFO_MAX_EXTENSIONS) {
+        return jsonResponse({ error: "payment-window-locked" }, 429);
+      }
+      session.paymentInfo.extensions += 1;
+      await env.SESSIONS.put(`session:${sessionId}`, JSON.stringify(session), { expirationTtl: PAYMENT_INFO_MAX_WINDOW_SECONDS });
+      await logTransaction(env, {
+        type: "payment-info-extension",
+        isAdmin: false,
+        email: (session.result.invoiceEmails || [])[0] || (session.result.reminderEmails || [])[0] || "",
+        amount: session.price,
+        referenceId: referenceCode,
+        sessionId,
+        fileHash: session.fileHash || null,
+      });
+      if (session.paymentInfo.extensions > 1) {
+        await logError(env, "payment-window-extended-multiple-times", `Session ${sessionId} extended ${session.paymentInfo.extensions} times, first requested at ${new Date(session.paymentInfo.firstRequestedAt).toISOString()}`);
+      }
 
-      return jsonResponse({ upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note, payeeVpa: upiId, payeeName });
+      return jsonResponse({ upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note, referenceCode, payeeVpa: upiId, payeeName });
     }
 
     // --- submit_payment_claim (client reports the UTR after paying via QR) ---
@@ -2079,8 +2224,31 @@ async function handleAction(action, body, request, env) {
         (!session.chosenOpts.reminder || session.unlocked.reminder);
       if (allUnlocked) return jsonResponse({ status: "already-unlocked" });
 
+      if (!session.paymentInfo || !session.paymentInfo.referenceCode) {
+        session.paymentInfo = session.paymentInfo || {};
+        session.paymentInfo.referenceCode = generatePaymentReferenceCode("QFD", sessionId);
+      }
+      if (session.paymentInfo.firstRequestedAt && session.paymentInfo.firstRequestedAt + PAYMENT_INFO_MAX_WINDOW_SECONDS * 1000 < Date.now()) {
+        return jsonResponse({ error: "payment-window-expired" }, 410);
+      }
+
+      const duplicateClaims = await findClaimsByUtr(env, utr);
+      if (duplicateClaims.length) {
+        await logError(env, "duplicate-utr", `UTR ${utr} already used by ${duplicateClaims.map((c) => `${c.kind}:${c.id}`).join(", ")}`);
+        return jsonResponse({ error: "duplicate-utr" }, 409);
+      }
+
       const amount = uniqueAmountFor(session.price, sessionId);
-      const claim = { kind: "onetime", id: sessionId, utr, amount, status: "pending", claimedAt: Date.now(), email: (session.result.invoiceEmails || [])[0] || (session.result.reminderEmails || [])[0] || "" };
+      const claim = {
+        kind: "onetime",
+        id: sessionId,
+        utr,
+        referenceCode: session.paymentInfo.referenceCode,
+        amount,
+        status: "pending",
+        claimedAt: Date.now(),
+        email: (session.result.invoiceEmails || [])[0] || (session.result.reminderEmails || [])[0] || "",
+      };
       await env.SESSIONS.put(`claim:onetime:${sessionId}`, JSON.stringify(claim), { expirationTtl: 7 * 24 * 60 * 60 });
       // Keep the session alive long enough for a human to check a bank
       // statement and confirm — a few days, not a few minutes.
@@ -2112,10 +2280,12 @@ async function handleAction(action, body, request, env) {
       const price = hasSubscribedBefore ? MONTHLY_SUB_PRICE_INR : FIRST_MONTH_PRICE_INR;
 
       const amount = uniqueAmountFor(price, email);
-      const note = `QFD-SUB-${email.slice(0, 10)}`;
+      const referenceCode = generatePaymentReferenceCode("QFD-SUB", `${email}-${Date.now()}`);
+      await env.SESSIONS.put(`sub-payment:${email}`, JSON.stringify({ referenceCode, amount, createdAt: Date.now() }), { expirationTtl: 7 * 24 * 60 * 60 });
+      const note = referenceCode;
       const upiUri = buildUpiUri(upiId, payeeName, amount, note);
       return jsonResponse({
-        upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note, payeeVpa: upiId, payeeName,
+        upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note: referenceCode, referenceCode, payeeVpa: upiId, payeeName,
         isFirstMonth: !hasSubscribedBefore, regularPrice: MONTHLY_SUB_PRICE_INR,
       });
     }
@@ -2131,13 +2301,22 @@ async function handleAction(action, body, request, env) {
       if (!email || !utr) return jsonResponse({ error: "missing-fields" }, 400);
       if (!/^[A-Za-z0-9]{6,30}$/.test(utr)) return jsonResponse({ error: "utr-looks-invalid" }, 400);
 
-      // Must match the same first-month-aware price used to build the QR
-      // in get_subscription_payment_info, or the claimed amount here
-      // wouldn't match what the client actually saw and paid.
+      const pendingRaw = await env.SESSIONS.get(`sub-payment:${email}`);
+      const pendingData = pendingRaw ? JSON.parse(pendingRaw) : null;
       const hasSubscribedBefore = !!(await env.SESSIONS.get(`memberhistory:${email}`));
       const price = hasSubscribedBefore ? MONTHLY_SUB_PRICE_INR : FIRST_MONTH_PRICE_INR;
       const amount = uniqueAmountFor(price, email);
-      const claim = { kind: "sub", id: email, utr, amount, status: "pending", claimedAt: Date.now(), email };
+      const referenceCode = pendingData && pendingData.referenceCode ? pendingData.referenceCode : generatePaymentReferenceCode("QFD-SUB", email);
+      const claim = {
+        kind: "sub",
+        id: email,
+        utr,
+        referenceCode,
+        amount,
+        status: "pending",
+        claimedAt: Date.now(),
+        email,
+      };
       await env.SESSIONS.put(`claim:sub:${email}`, JSON.stringify(claim), { expirationTtl: 7 * 24 * 60 * 60 });
 
       if (env.OWNER_EMAIL) {
@@ -2149,12 +2328,22 @@ async function handleAction(action, body, request, env) {
 
     // --- unlock (manual admin fallback — e.g. a client paid by bank transfer/cash) ---
     if (action === "unlock") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, "unlock");
+      if (!auth.ok) {
+        await logTransaction(env, {
+          type: "unlock-failed",
+          isAdmin: false,
+          amount: 0,
+          referenceId: auth.error,
+          sessionId: body.sessionId || null,
+          fileHash: null,
+        });
+        return jsonResponse({ error: auth.error }, auth.status);
+      }
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
       if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      const { sessionId, adminKey, options } = body;
-      if (!safeEqual(adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      const { sessionId, options } = body;
       if (!sessionId) return jsonResponse({ error: "missing-session" }, 400);
 
       const raw = await env.SESSIONS.get(`session:${sessionId}`);
@@ -2170,7 +2359,7 @@ async function handleAction(action, body, request, env) {
       await incrementStat(env, "revenue_inr", session.price);
       await logTransaction(env, {
         type: "manual-admin-unlock",
-        isAdmin: true, // real money changed hands (bank transfer/cash), just not through the UPI QR flow — counts toward revenue
+        isAdmin: true,
         email: (session.result.invoiceEmails || [])[0] || (session.result.reminderEmails || [])[0] || "",
         amount: session.price,
         referenceId: "manual",
@@ -2196,12 +2385,22 @@ async function handleAction(action, body, request, env) {
     // convenience toggle on the site is cosmetic, the authorization is
     // 100% server-side, same as it's always been.
     if (action === "admin_test_unlock") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, "admin_test_unlock");
+      if (!auth.ok) {
+        await logTransaction(env, {
+          type: "admin-test-unlock-failed",
+          isAdmin: false,
+          amount: 0,
+          referenceId: auth.error,
+          sessionId: body.sessionId || null,
+          fileHash: null,
+        });
+        return jsonResponse({ error: auth.error }, auth.status);
+      }
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
       if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      const { sessionId, adminKey, options } = body;
-      if (!safeEqual(adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      const { sessionId, options } = body;
       if (!sessionId) return jsonResponse({ error: "missing-session" }, 400);
 
       const raw = await env.SESSIONS.get(`session:${sessionId}`);
@@ -2231,11 +2430,14 @@ async function handleAction(action, body, request, env) {
 
     // --- list_payment_claims (admin — everything awaiting a UPI confirm/reject) ---
     if (action === "list_payment_claims") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       const list = await env.SESSIONS.list({ prefix: "claim:" });
       const claims = await Promise.all(list.keys.map(async (k) => JSON.parse(await env.SESSIONS.get(k.name))));
@@ -2245,11 +2447,14 @@ async function handleAction(action, body, request, env) {
 
     // --- confirm_claim (admin — you checked the bank/UPI statement, amount matches) ---
     if (action === "confirm_claim") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       const { kind, id } = body;
       if (!kind || !id) return jsonResponse({ error: "missing-fields" }, 400);
@@ -2259,11 +2464,14 @@ async function handleAction(action, body, request, env) {
 
     // --- reject_claim (admin — amount/UTR didn't match your statement) ---
     if (action === "reject_claim") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       const { kind, id, reason } = body;
       if (!kind || !id) return jsonResponse({ error: "missing-fields" }, 400);
@@ -2289,11 +2497,14 @@ async function handleAction(action, body, request, env) {
 
     // --- add_ca_partner (admin) ---
     if (action === "add_ca_partner") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       const { name, specialty, contact, region } = body;
       if (!name || !contact) return jsonResponse({ error: "missing-fields" }, 400);
@@ -2306,11 +2517,14 @@ async function handleAction(action, body, request, env) {
 
     // --- list_ca_partners (admin) ---
     if (action === "list_ca_partners") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       const list = await env.SESSIONS.list({ prefix: "partner:" });
       const partners = await Promise.all(
@@ -2321,11 +2535,14 @@ async function handleAction(action, body, request, env) {
 
     // --- remove_ca_partner (admin) ---
     if (action === "remove_ca_partner") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       if (!body.partnerId) return jsonResponse({ error: "missing-partner-id" }, 400);
       await env.SESSIONS.delete(`partner:${body.partnerId}`);
@@ -2378,11 +2595,14 @@ async function handleAction(action, body, request, env) {
 
     // --- create_api_key (admin) ---
     if (action === "create_api_key") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       const { label } = body;
       if (!label) return jsonResponse({ error: "missing-label" }, 400);
@@ -2399,11 +2619,14 @@ async function handleAction(action, body, request, env) {
 
     // --- list_api_keys (admin) — masked, never the real key again ---
     if (action === "list_api_keys") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       const list = await env.SESSIONS.list({ prefix: "apikey:" });
       const keys = await Promise.all(
@@ -2418,11 +2641,14 @@ async function handleAction(action, body, request, env) {
 
     // --- revoke_api_key (admin) ---
     if (action === "revoke_api_key") {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
 
       if (!body.apiKey) return jsonResponse({ error: "missing-key" }, 400);
       await env.SESSIONS.delete(`apikey:${body.apiKey}`);
@@ -2493,11 +2719,14 @@ async function handleAction(action, body, request, env) {
       "admin_stats", "list_transactions", "export_transactions_csv", "list_errors",
     ]);
     if (adminActions.has(action)) {
-      if (!env.ADMIN_KEY) return jsonResponse({ error: "admin-not-configured" }, 501);
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const auth = await authenticateAdmin(env, ip, body.adminKey, action);
+      if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status);
       const ok = await checkRateLimit(env, ip, "admin", ADMIN_RATE_LIMIT_MAX_PER_HOUR);
-      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
-      if (!safeEqual(body.adminKey, env.ADMIN_KEY)) return jsonResponse({ error: "invalid-admin-key" }, 403);
+      if (!ok) {
+        await logError(env, `${action}-rate-limited`, `Admin action ${action} rate-limited from ${ip}`);
+        return jsonResponse({ error: "rate-limited" }, 429);
+      }
     }
 
     if (action === "subscribe") {

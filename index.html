@@ -887,13 +887,14 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
       <button class="btn btn-primary" id="subscribeBtn">Subscribe</button>
     </div>
     <p class="tool-hint" id="subFirstMonthNote" style="margin-top:2px;">First month: <strong>₹199</strong> — enter your email above to see your price.</p>
+    <p class="tool-hint" style="margin-top:6px;">No auto-renewal. Your membership runs for 33 days and ends automatically unless you pay again. If you have a problem, contact me quickly and I'll help resolve it.</p>
     <div id="subQrBox" style="display:none; margin-top:14px;">
       <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
         <img id="subQrImg" alt="UPI payment QR code" width="180" height="180" style="border:1px solid var(--line, #ccc); border-radius:8px;">
         <div style="flex:1; min-width:200px;">
           <p class="mono" style="margin-bottom:4px; font-size:0.8rem; color:var(--paper-dim, #888);">Paying: <b id="subQrPayeeName" style="color:inherit;">—</b> (<span id="subQrPayeeVpa">—</span>)</p>
           <p class="tool-hint" style="margin-bottom:8px; font-size:0.74rem;">⚠️ Your UPI app will show this exact name when you scan — if it shows anything different, stop and don't pay.</p>
-          <p class="mono" style="margin-bottom:6px;">Amount: <b id="subQrAmount">₹0</b></p>
+          <p class="mono" style="margin-bottom:6px;">Amount: <b id="subQrAmount">—</b></p>
           <a id="subUpiAppLink" href="#" class="tool-hint" style="display:inline-block; margin-bottom:12px;">📱 Open directly in a UPI app (on phone)</a>
           <input type="text" id="subUtrInput" placeholder="UTR / reference number after paying" style="width:100%; margin-bottom:8px;">
           <button class="btn btn-primary" id="subSubmitUtrBtn">I've paid — submit reference number</button>
@@ -969,8 +970,8 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
 
     <div class="unlock-cta">
       <div id="priceBreakdown" class="price-breakdown"></div>
-      <div class="price-line">Total: <span class="amt" id="priceAmt">₹0</span></div>
-      <p class="sub" style="margin-bottom:10px;">Scan the QR with any UPI app, pay the <strong>exact amount shown</strong> (a few extra paise are added on purpose — it's how your payment gets matched), then enter the UTR/reference number your app gives you.</p>
+      <div class="price-line">Total: <span class="amt" id="priceAmt">—</span></div>
+      <p class="sub" style="margin-bottom:10px;">Scan the QR with any UPI app, pay the <strong>exact amount shown</strong>, then use the unique payment note and enter the UTR/reference number your app gives you. Every claim is recorded permanently so disputes can be resolved from the payment log.</p>
       <button class="btn btn-primary pay-btn" id="showQrBtn">Show payment QR →</button>
       <div id="qrBox" style="display:none; margin-top:14px;">
         <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
@@ -978,7 +979,7 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
           <div style="flex:1; min-width:200px;">
             <p class="mono" style="margin-bottom:4px; font-size:0.8rem; color:var(--paper-dim, #888);">Paying: <b id="qrPayeeName" style="color:inherit;">—</b> (<span id="qrPayeeVpa">—</span>)</p>
             <p class="tool-hint" style="margin-bottom:8px; font-size:0.74rem;">⚠️ Your UPI app will show this exact name when you scan — if it shows anything different, stop and don't pay.</p>
-            <p class="mono" style="margin-bottom:6px;">Amount: <b id="qrAmount">₹0</b></p>
+            <p class="mono" style="margin-bottom:6px;">Amount: <b id="qrAmount">—</b></p>
             <a id="upiAppLink" href="#" class="tool-hint" style="display:inline-block; margin-bottom:12px;">📱 Open directly in a UPI app (on phone)</a>
             <input type="text" id="utrInput" placeholder="UTR / reference number after paying" style="width:100%; margin-bottom:8px;">
             <button class="btn btn-primary" id="submitUtrBtn">I've paid — submit reference number</button>
@@ -1104,6 +1105,9 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
   <h3>Privacy &amp; data policy</h3>
   <p class="sub">
     Files you upload are processed in memory to generate your results and are automatically deleted after 10 minutes (longer if a payment is in progress, to give time to confirm it), whether or not you pay. Nothing is kept longer than that unless you specifically set up a recurring subscription, in which case only the sheet link and your email are stored so the weekly job can run — no financial data is retained between runs beyond what's needed to email you the latest result. A permanent record of each confirmed <em>payment</em> (date, amount, email, UPI reference number) is kept for accounting/GST purposes — this does not include your file contents.
+  </p>
+  <p class="sub">
+    Because delivery is digital, refunds are handled case-by-case; if something doesn't look right please contact me within 24 hours of delivery and I'll work it out. All payment claims and confirmations are logged to keep a dispute-proof record.
   </p>
   <p class="sub">
     Client names, emails, and amounts in your file are used only to generate the cleaned data, invoices, and reminders you asked for. They are never sold, shared with third parties, or used for anything beyond completing your order. Payment is made directly to our UPI ID — no card or bank login details are ever entered on or seen by this site.
@@ -1951,7 +1955,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
           ? `🎉 First month price: ₹${data.amount.toFixed ? data.amount.toFixed(0) : data.amount} — renews at ₹${data.regularPrice}/month after that.`
           : `Renewal price: ₹${data.regularPrice}/month.`;
       }
-      subStatus.textContent = 'Scan, pay the exact amount shown (a few extra paise are added on purpose — it\'s how your payment gets matched, not an extra charge), then submit your reference number below.';
+      subStatus.textContent = 'Scan, pay the exact amount shown, then use the unique payment note and submit your UTR/reference number below.';
     } catch (err) {
       subStatus.textContent = err.message === 'subscriptions-not-configured'
         ? "Monthly plans aren't set up yet — message me directly for now."
