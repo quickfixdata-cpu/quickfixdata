@@ -309,6 +309,22 @@
   .multi-file-card-meta span{font-family:'IBM Plex Mono', monospace; font-size:0.75rem; background:var(--paper-dim); border-radius:4px; padding:2px 6px;}
   .multi-file-card-remove{border:1px solid var(--line); background:#fff; border-radius:6px; padding:6px 10px; font-size:0.78rem; cursor:pointer; color:#b5493a; flex:0 0 auto;}
   .multi-file-card-remove:hover{background:#FFF5F2;}
+  .batch-summary{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:16px 0; padding:14px; background:var(--paper-dim); border:1px solid var(--line); border-radius:8px;}
+  .batch-summary-item b{display:block; font-family:'IBM Plex Mono', monospace; font-size:0.72rem; color:#6b7078; margin-bottom:2px;}
+  .batch-summary-item span{font-weight:600; font-size:1.1rem; color:var(--ink);}
+  .batch-file-grid{display:grid; gap:12px; margin-top:16px;}
+  .batch-file-card{border:1px solid var(--line); border-radius:8px; background:#fff; overflow:hidden;}
+  .batch-file-card-head{padding:12px 14px; background:var(--paper); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;}
+  .batch-file-card-title{font-family:'IBM Plex Mono', monospace; font-weight:600; font-size:0.88rem; color:var(--ink);}
+  .batch-file-card-status{font-size:0.75rem; padding:3px 8px; border-radius:4px; font-weight:600;}
+  .batch-file-card-status.processed{background:#E6F4EA; color:#137333;}
+  .batch-file-card-status.locked{background:#FEF7E0; color:#B05E0F;}
+  .batch-file-card-status.unlocked{background:#E8F5E9; color:#0F6E5C;}
+  .batch-file-card-body{padding:12px 14px;}
+  .batch-file-card-meta{font-size:0.8rem; color:#6b7078; display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px;}
+  .batch-file-card-meta span{font-family:'IBM Plex Mono', monospace; font-size:0.75rem; background:var(--paper-dim); border-radius:4px; padding:2px 6px;}
+  .batch-file-card-preview{font-family:'IBM Plex Mono', monospace; font-size:0.78rem; background:#fbf9f4; border:1px solid var(--line); border-radius:4px; padding:10px; max-height:160px; overflow:auto; white-space:pre-wrap; margin-top:8px;}
+  .batch-file-card-actions{margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;}
   .tool-options{
     display:grid;
     grid-template-columns:repeat(3, 1fr);
@@ -1199,6 +1215,9 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
       <textarea readonly style="width:100%; min-height:90px; font-family:monospace; font-size:0.86rem;"></textarea>
     </div>
 
+    <div id="batchSummary" class="batch-summary" style="display:none;"></div>
+    <div id="batchFileGrid" class="batch-file-grid" style="display:none;"></div>
+
     <div class="unlock-cta">
       <div id="priceBreakdown" class="price-breakdown"></div>
       <div class="price-line">Total: <span class="amt" id="priceAmt">—</span></div>
@@ -2087,10 +2106,14 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     stopTimers();
     currentSessionId = null;
     currentBatchId = null;
-    // Milestone 3: clear multi-file state
+    // Milestone 3 & 5: clear multi-file and batch results state
     selectedFiles = [];
     if(multiFileListEl){ multiFileListEl.style.display='none'; multiFileListEl.innerHTML=''; }
     showMultiFileLimitMessage('');
+    const batchSummaryEl = document.getElementById('batchSummary');
+    const batchGridEl = document.getElementById('batchFileGrid');
+    if(batchSummaryEl){ batchSummaryEl.style.display='none'; batchSummaryEl.innerHTML=''; }
+    if(batchGridEl){ batchGridEl.style.display='none'; batchGridEl.innerHTML=''; }
   });
 
   // Note: file parsing, cleaning, invoice/reminder generation, and payment
@@ -2751,17 +2774,79 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     submitForProcessing(editedCsv, photoReviewOpts, true);
   });
 
-  // --- Milestone 4: Batch processing integration ---
+  // --- Milestone 4 & 5: Batch processing integration + Batch Results UI ---
+  function escapeHtmlAttr(s){ return String(s||'').replace(/[&<>"']/g,ch=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch])); }
+
+  function renderBatchSummary(batch){
+    const summaryEl = document.getElementById('batchSummary');
+    if(!summaryEl) return;
+    summaryEl.style.display = 'grid';
+    summaryEl.innerHTML = `
+      <div class="batch-summary-item"><b>Total Files</b><span>${batch.fileCount}</span></div>
+      <div class="batch-summary-item"><b>Total Rows</b><span>${batch.totalRows}</span></div>
+      <div class="batch-summary-item"><b>${batch.isMember ? 'Actual Price' : 'Estimated Price'}</b><span>₹${batch.totalPrice}</span></div>
+    `;
+  }
+
+  function renderBatchFileCards(files, isMember){
+    const gridEl = document.getElementById('batchFileGrid');
+    if(!gridEl) return;
+    if(!files || !files.length){ gridEl.style.display='none'; gridEl.innerHTML=''; return; }
+    gridEl.style.display = 'grid';
+    gridEl.innerHTML = files.map(f=>{
+      const safeName = escapeHtmlAttr(f.filename);
+      const status = isMember ? 'unlocked' : 'locked';
+      const statusLabel = isMember ? 'Unlocked' : 'Locked — preview only';
+      const statusClass = isMember ? 'unlocked' : 'locked';
+      const rowCount = f.totalRows ?? 0;
+      const previewRows = f.previewRows || [];
+      const cleanCsv = f.cleanCsv || '';
+      const previewText = isMember && cleanCsv ? cleanCsv.slice(0, 2000) : previewRows.join('\n');
+      const hasDownload = isMember && cleanCsv;
+      return `<div class="batch-file-card" data-file-id="${escapeHtmlAttr(f.fileId)}">
+        <div class="batch-file-card-head">
+          <div class="batch-file-card-title" title="${safeName}">${safeName}</div>
+          <span class="batch-file-card-status ${statusClass}">${isMember ? '✅' : '🔒'} ${statusLabel}</span>
+        </div>
+        <div class="batch-file-card-body">
+          <div class="batch-file-card-meta">
+            <span>Rows: ${rowCount}</span>
+            <span>${isMember ? 'Full access' : 'Preview: ' + (previewRows.length || 0) + ' rows'}</span>
+            <span>Processed</span>
+          </div>
+          ${previewText ? `<div class="batch-file-card-preview">${previewText.replace(/</g,'&lt;')}</div>` : '<div class="batch-file-card-preview" style="color:#999;">No preview available</div>'}
+          <div class="batch-file-card-actions">
+            ${hasDownload ? `<button class="btn btn-primary" data-batch-download="${escapeHtmlAttr(f.fileId)}" style="font-size:0.82rem; padding:8px 14px;">Download ${safeName}</button>` : `<button class="btn btn-ghost" disabled style="font-size:0.78rem;">🔒 Unlock to download</button>`}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Attach download handlers for unlocked files
+    gridEl.querySelectorAll('[data-batch-download]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        const fileId = e.currentTarget.getAttribute('data-batch-download');
+        const file = files.find(ff=>ff.fileId===fileId);
+        if(file && file.cleanCsv){
+          downloadBlob(file.cleanCsv, file.filename || 'cleaned.csv', 'text/csv');
+        }
+      });
+    });
+  }
+
   async function submitBatchForProcessing(files, opts){
     runBtn.disabled = true;
     runBtn.textContent = 'Processing batch…';
     errorMsg.textContent = '';
     expiredPanel.style.display = 'none';
     resultsPanel.style.display = 'none';
+    const batchSummaryEl = document.getElementById('batchSummary');
+    const batchGridEl = document.getElementById('batchFileGrid');
+    if(batchSummaryEl) batchSummaryEl.style.display='none';
+    if(batchGridEl) batchGridEl.style.display='none';
     setUploadProgress(`Preparing ${files.length} file(s) for batch processing…`, 'busy');
     try{
       const memberEmail = document.getElementById('memberEmailInput').value.trim() || undefined;
-      // Read all files as CSV (handles .xlsx via XLSX lib)
       const batchFiles = [];
       for(let i=0;i<files.length;i++){
         const f = files[i];
@@ -2781,24 +2866,27 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       currentBatchId = result.batchId;
       currentPrice = result.totalPrice || 0;
 
-      // Reuse existing preview UI for batch
+      // Batch Summary + per-file cards (Milestone 5)
+      renderBatchSummary(result);
+      renderBatchFileCards(result.files, !!result.isMember);
+
       if(result.isMember){
         lockedSummary.textContent = `Batch processed: ${result.fileCount} file(s), ${result.totalRows} row(s) — unlocked instantly with your monthly plan.`;
         resultBlocks.innerHTML = '';
         result.files.forEach(f=>{
-          const preview = f.previewRows ? f.previewRows.join('\n') : (f.cleanCsv ? f.cleanCsv.slice(0,500) : '');
-          if(preview) renderBlock(`${f.filename} — ${f.totalRows} rows`, preview, f.filename);
+          const preview = f.previewRows ? f.previewRows.join('\n') : (f.cleanCsv ? f.cleanCsv.slice(0,800) : '');
+          if(preview) renderBlock(`${f.filename} — ${f.totalRows} rows`, preview, f.filename, currentGmailLinks.invoices);
           if(f.report) renderSafetyReport(f.report, []);
         });
         setUploadProgress('Batch processed — unlocked with your monthly plan.', 'ok');
         resultsPanel.style.display = 'block';
+        lockedPanel.style.display = 'block';
         resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
       }
 
       lockedSummary.textContent = `Batch processed: ${result.fileCount} file(s), ${result.totalRows} row(s). Free previews shown; pay to unlock full results.`;
       document.getElementById('priceAmt').textContent = `₹${currentPrice}`;
-      // For batch, price breakdown is sum; reuse simple display
       const priceEl = document.getElementById('priceBreakdown');
       if(priceEl){
         priceEl.innerHTML = `<div class="pb-row"><span>${result.fileCount} file(s) × selected services</span><span>₹${currentPrice}</span></div>`;
@@ -2815,7 +2903,6 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       lockedPanel.style.display = 'block';
       lockedPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       startCountdown(result.expiresIn);
-      // Batch polling not needed yet; reuse session flow for single-file compatibility
     } catch(err){
       const friendly = describeUploadError(err.message, currentLocalFileSummary);
       errorMsg.textContent = friendly;
