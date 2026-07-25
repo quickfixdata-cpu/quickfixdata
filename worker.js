@@ -2540,6 +2540,115 @@ async function handleAction(action, body, request, env) {
       return jsonResponse(result.response);
     }
 
+    // --- process_batch (Milestone 2 — batch processing) ---
+    if (action === "process_batch") {
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const apiKeyLabel = await validateApiKey(env, body.apiKey);
+      const ok = await checkRateLimit(env, ip, "process_batch", apiKeyLabel ? RATE_LIMIT_MAX_PER_HOUR * 10 : RATE_LIMIT_MAX_PER_HOUR);
+      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
+
+      const { files, memberEmail } = body;
+      if (!Array.isArray(files) || files.length === 0) return jsonResponse({ error: "missing-files" }, 400);
+      if (files.length > 10) return jsonResponse({ error: "too-many-files" }, 400);
+
+      let isMember = false;
+      if (memberEmail) {
+        const memberRaw = await env.SESSIONS.get(`member:${memberEmail.toLowerCase().trim()}`);
+        isMember = !!memberRaw;
+      }
+
+      const batchId = safeRandomUUID();
+      const batchFiles = [];
+      let totalRows = 0;
+      let totalPrice = 0;
+
+      for (let idx = 0; idx < files.length; idx++) {
+        const file = files[idx] || {};
+        const filenameRaw = file.filename || `file-${idx + 1}.csv`;
+        const filename = sanitizeFilename(filenameRaw);
+        const csvText = file.csvText;
+        const opts = file.opts || { clean: true, invoice: true, reminder: true };
+
+        if (!csvText || typeof csvText !== "string") {
+          return jsonResponse({ error: "missing-csv", fileIndex: idx }, 400);
+        }
+        if (csvText.length > MAX_CSV_BYTES) {
+          return jsonResponse({ error: "file-too-large", fileIndex: idx }, 413);
+        }
+        const approxLineCount = (csvText.match(/\n/g) || []).length + 1;
+        if (approxLineCount > MAX_CSV_ROWS) {
+          return jsonResponse({ error: "too-many-rows", fileIndex: idx }, 413);
+        }
+        if (looksLikeBinaryGarbage(csvText)) {
+          await logError(env, "process_batch-binary-reject", `Rejected non-text upload in batch from IP ${ip} fileIndex ${idx}`);
+          return jsonResponse({ error: "not-valid-text", fileIndex: idx }, 400);
+        }
+
+        try {
+          const result = runFullPipeline(csvText, opts);
+          const fileId = safeRandomUUID();
+          const priceBreakdown = computePriceBreakdown(opts);
+          const price = isMember ? 0 : priceBreakdown.total;
+          const fileHash = await computeFileFingerprint(csvText);
+          const previewRows = result.cleanCsv ? result.cleanCsv.split(/\r?\n/).slice(1, 4).filter((l) => l && l.trim().length > 0) : [];
+
+          const fileRecord = {
+            result,
+            chosenOpts: opts,
+            price,
+            fileHash,
+            filename,
+            batchId,
+            fileId,
+            createdAt: Date.now(),
+            sourceLabel: apiKeyLabel || null,
+            unlocked: isMember ? { clean: !!opts.clean, invoice: !!opts.invoice, reminder: !!opts.reminder } : { clean: false, invoice: false, reminder: false },
+          };
+          await env.SESSIONS.put(`batchfile:${batchId}:${fileId}`, JSON.stringify(fileRecord), { expirationTtl: SESSION_TTL_SECONDS });
+
+          batchFiles.push({
+            fileId,
+            filename,
+            totalRows: result.totalRows,
+            price,
+            previewRows: isMember ? undefined : previewRows,
+            cleanCsv: isMember && fileRecord.unlocked.clean ? result.cleanCsv : undefined,
+            report: result.report,
+          });
+
+          totalRows += result.totalRows;
+          totalPrice += price;
+        } catch (err) {
+          const message = err.message === "missing-columns" ? "missing-columns" : err.message === "invalid-column-mapping" ? "invalid-column-mapping" : "processing-error";
+          return jsonResponse({ error: message, fileIndex: idx }, 400);
+        }
+      }
+
+      const manifest = {
+        batchId,
+        fileCount: files.length,
+        totalRows,
+        totalPrice: isMember ? 0 : totalPrice,
+        files: batchFiles.map((f) => ({ fileId: f.fileId, filename: f.filename, totalRows: f.totalRows, price: f.price })),
+        createdAt: Date.now(),
+        isMember,
+        memberEmail: memberEmail ? memberEmail.toLowerCase().trim() : null,
+        sourceLabel: apiKeyLabel || null,
+      };
+      await env.SESSIONS.put(`batch:${batchId}`, JSON.stringify(manifest), { expirationTtl: SESSION_TTL_SECONDS });
+      await incrementStat(env, "total_sessions");
+
+      return jsonResponse({
+        batchId,
+        fileCount: files.length,
+        totalRows,
+        totalPrice: manifest.totalPrice,
+        isMember,
+        expiresIn: SESSION_TTL_SECONDS,
+        files: batchFiles,
+      });
+    }
+
     // --- process_photo (photo of a handwritten/printed ledger -> data) ---
     // --- transcribe_photo (preview-only: read a ledger photo into CSV
     // text for the client to REVIEW before anything is priced or locked
@@ -2739,10 +2848,6 @@ async function handleAction(action, body, request, env) {
     }
 
     // --- run_tool (dashboard workflow for business document tools) ---
-    // Milestone 2 backend skeleton — Version 2.3
-    // Approved M1 decisions preserved: manual column mapping (resolveManualColumnMapping) remains in runFullPipeline.
-    // M2: clean, extensible registry for document/business tools with validation, size guards, and consistent response shape.
-    // Existing APIs preserved, payment flow untouched, admin flow untouched, frontend unchanged.
     if (action === "run_tool") {
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
       const toolName = String(body.tool || "").trim();
@@ -2750,229 +2855,213 @@ async function handleAction(action, body, request, env) {
       if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
       if (!toolName) return jsonResponse({ error: "missing-tool" }, 400);
 
-      const TOOL_SKELETON_VERSION = "2.3-m2";
-      const MAX_TOOL_TEXT = 200_000;
-      const MAX_TOOL_ROWS = 20_000;
-      const MAX_TOOL_FILES = 20;
-      const MAX_TOOL_BASE64 = 9_000_000;
-
-      function ensureText(val, field = "text") {
-        const s = String(val || "").trim();
-        if (!s) throw new Error(`missing-${field}`);
-        if (s.length > MAX_TOOL_TEXT) throw new Error(`${field}-too-large`);
-        return s;
-      }
-      function ensureCsvText(val) {
-        const s = String(val || "");
-        if (!s.trim()) throw new Error("missing-csv");
-        if (s.length > MAX_CSV_BYTES) throw new Error("file-too-large");
-        if (looksLikeBinaryGarbage(s)) throw new Error("not-valid-text");
-        return s;
-      }
-      function ensureRows(arr) {
-        if (!Array.isArray(arr) || !arr.length) throw new Error("missing-rows");
-        if (arr.length > MAX_TOOL_ROWS) throw new Error("too-many-rows");
-        return arr;
-      }
-      function ensureFiles(arr) {
-        if (!Array.isArray(arr) || !arr.length) throw new Error("missing-files");
-        if (arr.length > MAX_TOOL_FILES) throw new Error("too-many-files");
-        return arr;
-      }
-      function ensureBase64(b64) {
-        const s = String(b64 || "").trim();
-        if (!s) throw new Error("missing-file");
-        if (s.length > MAX_TOOL_BASE64) throw new Error("file-too-large");
-        return s;
-      }
-
-      const TOOL_HANDLERS = {
-        csv_to_pdf: async (payload) => {
-          const csvText = ensureCsvText(payload.csvText || payload.text || "");
-          const pdfBytes = buildPdfFromText(csvText);
-          return { filename: sanitizeFilename(payload.filename || "export.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf", version: TOOL_SKELETON_VERSION };
-        },
-        excel_to_pdf: async (payload) => {
-          const csvText = ensureCsvText(payload.csvText || payload.text || "");
-          const pdfBytes = buildPdfFromText(csvText);
-          return { filename: sanitizeFilename(payload.filename || "excel-export.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf", version: TOOL_SKELETON_VERSION };
-        },
-        pdf_invoice_to_csv: async (payload) => {
-          const text = String(payload.text || extractTextFromPdfBase64(payload.base64 || payload.contentBase64 || "") || "").trim();
-          if (!text) throw new Error("missing-text");
-          const parsed = parseSimpleInvoiceText(text);
-          const rows = [["Invoice Number", "Customer", "Amount", "Due Date"], [parsed.invoiceNumber, parsed.client, parsed.amount, parsed.due]];
-          return { filename: sanitizeFilename(payload.filename || "invoice.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows(rows))), mimeType: "text/csv", version: TOOL_SKELETON_VERSION };
-        },
-        pdf_invoice_to_excel: async (payload) => {
-          const text = String(payload.text || extractTextFromPdfBase64(payload.base64 || payload.contentBase64 || "") || "").trim();
-          if (!text) throw new Error("missing-text");
-          const parsed = parseSimpleInvoiceText(text);
-          const rows = [["Invoice Number", "Customer", "Amount", "Due Date"], [parsed.invoiceNumber, parsed.client, parsed.amount, parsed.due]];
-          return { filename: sanitizeFilename(payload.filename || "invoice.xlsx"), contentBase64: buildXlsxFromRows(rows, "Invoice"), mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", version: TOOL_SKELETON_VERSION };
-        },
-        merge_csv: async (payload) => {
-          const files = ensureFiles(payload.files);
-          const rows = [];
-          let headers = [];
-          for (const file of files) {
-            const txt = ensureCsvText(file.csvText || file.text || "");
-            const parsed = parseCsv(txt);
-            if (!headers.length) headers = parsed.headers;
-            for (const line of parsed.dataLines) rows.push(parseCsvLine(line));
-            if (rows.length > MAX_TOOL_ROWS) throw new Error("too-many-rows");
-          }
-          const csvText = buildCsvFromRows([headers, ...rows]);
-          return { filename: sanitizeFilename(payload.filename || "merged.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(csvText)), mimeType: "text/csv", version: TOOL_SKELETON_VERSION };
-        },
-        merge_excel: async (payload) => {
-          const files = ensureFiles(payload.files);
-          const rows = [];
-          let headers = [];
-          for (const file of files) {
-            const txt = ensureCsvText(file.csvText || file.text || "");
-            const parsed = parseCsv(txt);
-            if (!headers.length) headers = parsed.headers;
-            rows.push(...parsed.dataLines.map((l) => parseCsvLine(l)));
-            if (rows.length > MAX_TOOL_ROWS) throw new Error("too-many-rows");
-          }
-          const xlsxBase64 = buildXlsxFromRows([headers.length ? headers : ["Value"], ...rows], "Merged");
-          return { filename: sanitizeFilename(payload.filename || "merged.xlsx"), contentBase64: xlsxBase64, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", version: TOOL_SKELETON_VERSION };
-        },
-        split_csv: async (payload) => {
-          const csvText = ensureCsvText(payload.csvText || payload.text || "");
-          const { headers, dataLines } = parseCsv(csvText);
-          const chunkSize = Math.min(10000, Math.max(1, parseInt(payload.chunkSize || payload.rowsPerFile || "100", 10) || 100));
-          const chunks = [];
-          const parsedRows = dataLines.map((l) => parseCsvLine(l));
-          for (let i = 0; i < parsedRows.length; i += chunkSize) {
-            const chunkRows = parsedRows.slice(i, i + chunkSize);
-            const chunkText = buildCsvFromRows([headers, ...chunkRows]);
-            chunks.push({ name: `split-${Math.floor(i / chunkSize) + 1}.csv`, data: new TextEncoder().encode(chunkText) });
-          }
-          const zipBytes = buildZip(chunks.map((e) => ({ name: e.name, data: e.data })));
-          return { filename: sanitizeFilename(payload.filename || "split-files.zip"), contentBase64: bytesToBase64(zipBytes), mimeType: "application/zip", version: TOOL_SKELETON_VERSION };
-        },
-        remove_duplicates: async (payload) => {
-          const csvText = ensureCsvText(payload.csvText || payload.text || "");
-          const { headers, dataLines } = parseCsv(csvText);
-          const seen = new Set();
-          const out = [];
-          for (const line of dataLines) {
-            const cells = parseCsvLine(line);
-            const key = cells.join("\u0000");
-            if (seen.has(key)) continue;
-            seen.add(key);
-            out.push(cells);
-          }
-          return { filename: sanitizeFilename(payload.filename || "deduped.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows([headers, ...out]))), mimeType: "text/csv", version: TOOL_SKELETON_VERSION };
-        },
-        sort_rows: async (payload) => {
-          const csvText = ensureCsvText(payload.csvText || payload.text || "");
-          const { headers, dataLines } = parseCsv(csvText);
-          const sortCol = String(payload.sortColumn || headers[0] || "").trim().toLowerCase();
-          const rows = dataLines.map((l) => parseCsvLine(l));
-          const colIdx = headers.findIndex((h) => h.toLowerCase() === sortCol);
-          const sorted = rows.slice().sort((a, b) => {
-            const left = (colIdx >= 0 ? a[colIdx] : a[0]) || "";
-            const right = (colIdx >= 0 ? b[colIdx] : b[0]) || "";
-            return String(left).localeCompare(String(right));
-          });
-          return { filename: sanitizeFilename(payload.filename || "sorted.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows([headers, ...sorted]))), mimeType: "text/csv", version: TOOL_SKELETON_VERSION };
-        },
-        csv_to_excel: async (payload) => {
-          const csvText = ensureCsvText(payload.csvText || payload.text || "");
-          const { headers, dataLines } = parseCsv(csvText);
-          const rows = [headers, ...dataLines.map((l) => parseCsvLine(l))];
-          return { filename: sanitizeFilename(payload.filename || "converted.xlsx"), contentBase64: buildXlsxFromRows(rows, "Converted"), mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", version: TOOL_SKELETON_VERSION };
-        },
-        excel_to_csv: async (payload) => {
-          const csvText = ensureCsvText(payload.csvText || payload.text || "");
-          return { filename: sanitizeFilename(payload.filename || "converted.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(csvText)), mimeType: "text/csv", version: TOOL_SKELETON_VERSION };
-        },
-        docx_to_pdf: async (payload) => {
-          const b64 = ensureBase64(payload.base64 || payload.contentBase64 || "");
-          const text = await extractTextFromDocxBase64(b64);
-          if (!text) throw new Error("could-not-read-docx");
-          const pdfBytes = buildPdfFromText(text);
-          return { filename: sanitizeFilename(payload.filename || "converted.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf", version: TOOL_SKELETON_VERSION };
-        },
-        pdf_to_docx: async (payload) => {
-          const b64 = ensureBase64(payload.base64 || payload.contentBase64 || "");
-          const text = extractTextFromPdfBase64(b64);
-          if (!text) throw new Error("could-not-read-pdf");
-          const docxB64 = buildDocxFromText(text);
-          return { filename: sanitizeFilename(payload.filename || "converted.docx"), contentBase64: docxB64, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", version: TOOL_SKELETON_VERSION };
-        },
-        create_docx: async (payload) => {
-          const text = ensureText(payload.text, "text");
-          return { filename: sanitizeFilename(payload.filename || "document.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", version: TOOL_SKELETON_VERSION };
-        },
-        quotation_generator: async (payload) => {
-          const client = String(payload.client || "Client").slice(0, 200);
-          const amount = String(payload.amount || "0.00").slice(0, 100);
-          const text = String(payload.text || `Quotation\nClient: ${client}\nAmount: ${amount}\nTerms: Net 7 days`).slice(0, MAX_TOOL_TEXT);
-          if (!text.trim()) throw new Error("missing-text");
-          return { filename: sanitizeFilename(payload.filename || "quotation.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", version: TOOL_SKELETON_VERSION };
-        },
-        receipt_generator: async (payload) => {
-          const client = String(payload.client || "Client").slice(0, 200);
-          const amount = String(payload.amount || "0.00").slice(0, 100);
-          const text = String(payload.text || `Receipt\nReceived from: ${client}\nAmount: ${amount}\nDate: ${new Date().toISOString().slice(0,10)}`).slice(0, MAX_TOOL_TEXT);
-          if (!text.trim()) throw new Error("missing-text");
-          return { filename: sanitizeFilename(payload.filename || "receipt.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", version: TOOL_SKELETON_VERSION };
-        },
-        invoice_pdf: async (payload) => {
-          const text = ensureText(payload.text, "text");
-          const pdfBytes = buildPdfFromText(text);
-          return { filename: sanitizeFilename(payload.filename || "invoice.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf", version: TOOL_SKELETON_VERSION };
-        },
-        reminder_generator: async (payload) => {
-          const text = ensureText(payload.text, "text");
-          const pdfBytes = buildPdfFromText(text);
-          return { filename: sanitizeFilename(payload.filename || "reminder.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf", version: TOOL_SKELETON_VERSION };
-        },
-        payment_reminder: async (payload) => {
-          const text = ensureText(payload.text, "text");
-          const pdfBytes = buildPdfFromText(text);
-          return { filename: sanitizeFilename(payload.filename || "payment-reminder.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf", version: TOOL_SKELETON_VERSION };
-        },
-        tally_xml: async (payload) => {
-          const rows = ensureRows(payload.rows);
-          const company = String(payload.companyName || "QuickFix Data").slice(0, 200);
-          const normalized = rows.map((row) => ({
-            client: String(row.client || row[0] || "Client").slice(0, 200),
-            amount: Number(row.amount || row[2] || 0),
-            due: row.due ? new Date(row.due) : new Date(),
-            invoiceNumber: String(row.invoiceNumber || row[0] || "INV-001").slice(0, 100),
-          }));
-          const xml = buildTallyXml(normalized, company);
-          return { filename: sanitizeFilename(payload.filename || "tally-import.xml"), contentBase64: bytesToBase64(new TextEncoder().encode(xml)), mimeType: "application/xml", version: TOOL_SKELETON_VERSION };
-        },
-        gst_export: async (payload) => {
-          const rows = ensureRows(payload.rows);
-          const csvRows = [["Invoice Number", "Client", "Amount", "GST", "Total"]].concat(rows.map((row) => [
-            String(row.invoiceNumber || row[0] || "").slice(0, 100),
-            String(row.client || row[1] || "").slice(0, 200),
-            String(row.amount || row[2] || "").slice(0, 100),
-            String(row.gst || row[3] || "").slice(0, 50),
-            String(row.total || row[4] || "").slice(0, 100),
-          ]));
-          return { filename: sanitizeFilename(payload.filename || "gst-export.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows(csvRows))), mimeType: "text/csv", version: TOOL_SKELETON_VERSION };
-        },
-      };
-
       try {
         const payload = body.payload || body;
-        const handler = TOOL_HANDLERS[toolName];
-        if (!handler) return jsonResponse({ error: "unsupported-tool" }, 400);
-        const result = await handler(payload);
-        return jsonResponse(result);
+        let response;
+        switch (toolName) {
+          case "csv_to_pdf": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const pdfBytes = buildPdfFromText(csvText);
+            response = { filename: sanitizeFilename(payload.filename || "export.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "excel_to_pdf": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const pdfBytes = buildPdfFromText(csvText);
+            response = { filename: sanitizeFilename(payload.filename || "excel-export.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "pdf_invoice_to_csv": {
+            const text = String(payload.text || extractTextFromPdfBase64(payload.base64 || payload.contentBase64 || "") || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const parsed = parseSimpleInvoiceText(text);
+            const rows = [["Invoice Number", "Customer", "Amount", "Due Date"], [parsed.invoiceNumber, parsed.client, parsed.amount, parsed.due]];
+            response = { filename: sanitizeFilename(payload.filename || "invoice.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows(rows))), mimeType: "text/csv" };
+            break;
+          }
+          case "pdf_invoice_to_excel": {
+            const text = String(payload.text || extractTextFromPdfBase64(payload.base64 || payload.contentBase64 || "") || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const parsed = parseSimpleInvoiceText(text);
+            const rows = [["Invoice Number", "Customer", "Amount", "Due Date"], [parsed.invoiceNumber, parsed.client, parsed.amount, parsed.due]];
+            response = { filename: sanitizeFilename(payload.filename || "invoice.xlsx"), contentBase64: buildXlsxFromRows(rows, "Invoice"), mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+            break;
+          }
+          case "merge_csv": {
+            const files = Array.isArray(payload.files) ? payload.files : [];
+            if (!files.length) return jsonResponse({ error: "missing-files" }, 400);
+            const rows = [];
+            let headers = [];
+            for (const file of files) {
+              const text = String(file.csvText || file.text || "");
+              if (!text) continue;
+              const parsed = parseCsv(text);
+              if (!headers.length) headers = parsed.headers;
+              for (const line of parsed.dataLines) rows.push(parseCsvLine(line));
+            }
+            const csvText = buildCsvFromRows([headers, ...rows]);
+            response = { filename: sanitizeFilename(payload.filename || "merged.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(csvText)), mimeType: "text/csv" };
+            break;
+          }
+          case "merge_excel": {
+            const files = Array.isArray(payload.files) ? payload.files : [];
+            if (!files.length) return jsonResponse({ error: "missing-files" }, 400);
+            const rows = [];
+            let headers = [];
+            for (const file of files) {
+              const text = String(file.csvText || file.text || "");
+              if (!text) continue;
+              const parsed = parseCsv(text);
+              if (!headers.length) headers = parsed.headers;
+              rows.push(...parsed.dataLines.map((line) => parseCsvLine(line)));
+            }
+            const xlsxBase64 = buildXlsxFromRows([headers.length ? headers : ["Value"], ...rows], "Merged");
+            response = { filename: sanitizeFilename(payload.filename || "merged.xlsx"), contentBase64: xlsxBase64, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+            break;
+          }
+          case "split_csv": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const { headers, dataLines } = parseCsv(csvText);
+            const chunkSize = Math.max(1, parseInt(payload.chunkSize || payload.rowsPerFile || "100", 10));
+            const chunks = [];
+            const rows = dataLines.map((line) => parseCsvLine(line));
+            for (let index = 0; index < rows.length; index += chunkSize) {
+              const chunkRows = rows.slice(index, index + chunkSize);
+              const chunkText = buildCsvFromRows([headers, ...chunkRows]);
+              chunks.push({ name: `split-${Math.floor(index / chunkSize) + 1}.csv`, data: new TextEncoder().encode(chunkText) });
+            }
+            const zipBytes = buildZip(chunks.map((entry) => ({ name: entry.name, data: entry.data })));
+            response = { filename: sanitizeFilename(payload.filename || "split-files.zip"), contentBase64: bytesToBase64(zipBytes), mimeType: "application/zip" };
+            break;
+          }
+          case "remove_duplicates": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const { headers, dataLines } = parseCsv(csvText);
+            const seen = new Set();
+            const outputRows = [];
+            for (const line of dataLines) {
+              const cells = parseCsvLine(line);
+              const key = cells.join("\u0000");
+              if (seen.has(key)) continue;
+              seen.add(key);
+              outputRows.push(cells);
+            }
+            response = { filename: sanitizeFilename(payload.filename || "deduped.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows([headers, ...outputRows]))), mimeType: "text/csv" };
+            break;
+          }
+          case "sort_rows": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const { headers, dataLines } = parseCsv(csvText);
+            const sortColumn = String(payload.sortColumn || headers[0] || "").trim().toLowerCase();
+            const rows = dataLines.map((line) => parseCsvLine(line));
+            const colIndex = headers.findIndex((header) => header.toLowerCase() === sortColumn);
+            const sortedRows = rows.slice().sort((a, b) => {
+              const left = (colIndex >= 0 ? a[colIndex] : a[0]) || "";
+              const right = (colIndex >= 0 ? b[colIndex] : b[0]) || "";
+              return String(left).localeCompare(String(right));
+            });
+            response = { filename: sanitizeFilename(payload.filename || "sorted.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows([headers, ...sortedRows]))), mimeType: "text/csv" };
+            break;
+          }
+          case "csv_to_excel": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            const { headers, dataLines } = parseCsv(csvText);
+            const rows = [headers, ...dataLines.map((line) => parseCsvLine(line))];
+            response = { filename: sanitizeFilename(payload.filename || "converted.xlsx"), contentBase64: buildXlsxFromRows(rows, "Converted"), mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+            break;
+          }
+          case "excel_to_csv": {
+            const csvText = String(payload.csvText || payload.text || "");
+            if (!csvText) return jsonResponse({ error: "missing-csv" }, 400);
+            response = { filename: sanitizeFilename(payload.filename || "converted.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(csvText)), mimeType: "text/csv" };
+            break;
+          }
+          case "docx_to_pdf": {
+            const base64 = payload.base64 || payload.contentBase64 || "";
+            if (!base64) return jsonResponse({ error: "missing-file" }, 400);
+            const text = await extractTextFromDocxBase64(base64);
+            if (!text) return jsonResponse({ error: "could-not-read-docx" }, 400);
+            const pdfBytes = buildPdfFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "converted.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "pdf_to_docx": {
+            const base64 = payload.base64 || payload.contentBase64 || "";
+            if (!base64) return jsonResponse({ error: "missing-file" }, 400);
+            const text = extractTextFromPdfBase64(base64);
+            if (!text) return jsonResponse({ error: "could-not-read-pdf" }, 400);
+            const docxBase64 = buildDocxFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "converted.docx"), contentBase64: docxBase64, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+            break;
+          }
+          case "create_docx": {
+            const text = String(payload.text || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            response = { filename: sanitizeFilename(payload.filename || "document.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+            break;
+          }
+          case "quotation_generator": {
+            const client = payload.client || "Client";
+            const amount = payload.amount || "0.00";
+            const text = String(payload.text || `Quotation\nClient: ${client}\nAmount: ${amount}\nTerms: Net 7 days`);
+            response = { filename: sanitizeFilename(payload.filename || "quotation.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+            break;
+          }
+          case "receipt_generator": {
+            const client = payload.client || "Client";
+            const amount = payload.amount || "0.00";
+            const text = String(payload.text || `Receipt\nReceived from: ${client}\nAmount: ${amount}\nDate: ${new Date().toISOString().slice(0, 10)}`);
+            response = { filename: sanitizeFilename(payload.filename || "receipt.docx"), contentBase64: buildDocxFromText(text), mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" };
+            break;
+          }
+          case "invoice_pdf": {
+            const text = String(payload.text || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const pdfBytes = buildPdfFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "invoice.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "reminder_generator": {
+            const text = String(payload.text || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const pdfBytes = buildPdfFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "reminder.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          case "tally_xml": {
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+            if (!rows.length) return jsonResponse({ error: "missing-rows" }, 400);
+            const xml = buildTallyXml(rows.map((row) => ({ client: row.client || row[0] || "Client", amount: Number(row.amount || row[2] || 0), due: new Date(row.due || row[3] || Date.now()), invoiceNumber: row.invoiceNumber || row[0] || "INV-001" })), payload.companyName || "QuickFix Data");
+            response = { filename: sanitizeFilename(payload.filename || "tally-import.xml"), contentBase64: bytesToBase64(new TextEncoder().encode(xml)), mimeType: "application/xml" };
+            break;
+          }
+          case "gst_export": {
+            const rows = Array.isArray(payload.rows) ? payload.rows : [];
+            if (!rows.length) return jsonResponse({ error: "missing-rows" }, 400);
+            const csvRows = [["Invoice Number", "Client", "Amount", "GST", "Total"]].concat(rows.map((row) => [row.invoiceNumber || row[0] || "", row.client || row[1] || "", row.amount || row[2] || "", row.gst || row[3] || "", row.total || row[4] || ""]));
+            response = { filename: sanitizeFilename(payload.filename || "gst-export.csv"), contentBase64: bytesToBase64(new TextEncoder().encode(buildCsvFromRows(csvRows))), mimeType: "text/csv" };
+            break;
+          }
+          case "payment_reminder": {
+            const text = String(payload.text || "");
+            if (!text) return jsonResponse({ error: "missing-text" }, 400);
+            const pdfBytes = buildPdfFromText(text);
+            response = { filename: sanitizeFilename(payload.filename || "payment-reminder.pdf"), contentBase64: bytesToBase64(pdfBytes), mimeType: "application/pdf" };
+            break;
+          }
+          default:
+            return jsonResponse({ error: "unsupported-tool" }, 400);
+        }
+        return jsonResponse(response);
       } catch (err) {
         await logError(env, `tool:${toolName}`, err && err.stack ? err.stack : err);
-        const message = err && err.message ? err.message : String(err);
-        const isClientError = /^(missing-|.*-too-large|too-many-|could-not-read-|unsupported-|not-valid-text)/.test(message);
-        return jsonResponse({ error: message }, isClientError ? 400 : 500);
+        return jsonResponse({ error: err && err.message ? err.message : String(err) }, 500);
       }
     }
 
