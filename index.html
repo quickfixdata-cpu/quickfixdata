@@ -1111,7 +1111,7 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
 
   <div class="tool-panel">
     <span class="step-label">Step 1 — Upload CSV or Excel files (up to 5)</span>
-    <div class="dropzone" id="dropzone">
+    <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Drop CSV or Excel files here or press Enter to browse">
       <p>Drop up to 5 .csv or .xlsx files here, or click to browse.<br>Each file needs at least a name/client column and an amount column — email, date, and paid-status columns are optional.</p>
       <div class="filename" id="filename"></div>
       <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" multiple>
@@ -1900,6 +1900,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   });
 
   dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
   dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag'); });
   dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
   dropzone.addEventListener('drop', (e) => {
@@ -2814,7 +2815,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
             <span>${isMember ? 'Full access' : 'Preview: ' + (previewRows.length || 0) + ' rows'}</span>
             <span>Processed</span>
           </div>
-          ${previewText ? `<div class="batch-file-card-preview">${previewText.replace(/</g,'&lt;')}</div>` : '<div class="batch-file-card-preview" style="color:#999;">No preview available</div>'}
+          ${previewText ? `<div class="batch-file-card-preview">${escapeHtmlAttr(previewText)}</div>` : '<div class="batch-file-card-preview" style="color:#999;">No preview available</div>'}
           <div class="batch-file-card-actions">
             ${hasDownload ? `<button class="btn btn-primary" data-batch-download="${escapeHtmlAttr(f.fileId)}" style="font-size:0.82rem; padding:8px 14px;">Download ${safeName}</button>` : `<button class="btn btn-ghost" disabled style="font-size:0.78rem;">🔒 Unlock to download</button>`}
           </div>
