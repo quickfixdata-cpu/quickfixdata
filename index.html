@@ -320,6 +320,26 @@
   .topt .odesc{font-size:0.8rem; color:#6b7078; margin-top:4px;}
   .btn-primary:disabled{opacity:0.4; cursor:not-allowed;}
   .tool-error{color:#b5493a; font-size:0.9rem; margin-top:14px;}
+  .upload-status{
+    display:none;
+    margin-top:14px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:#F7F8FA;
+    padding:14px;
+    font-size:0.86rem;
+    color:#303844;
+  }
+  .upload-status.ok{border-color:#B7E3D7; background:#F2FBF8;}
+  .upload-status.warn{border-color:#F0D39A; background:#FFF9EB;}
+  .upload-status.err{border-color:#E7B7AD; background:#FFF5F2;}
+  .upload-status.busy{border-color:#BFD0EA; background:#F3F7FF;}
+  .upload-status-title{font-weight:700; margin-bottom:8px;}
+  .upload-status-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin-top:8px;}
+  .upload-chip{border:1px solid rgba(16,24,38,0.08); border-radius:7px; background:#fff; padding:8px 10px;}
+  .upload-chip b{display:block; font-family:'IBM Plex Mono', monospace; font-size:0.72rem; color:#6b7078; margin-bottom:2px;}
+  .upload-status ul{margin:8px 0 0 18px;}
+  .upload-status li{margin:4px 0;}
   .tool-hint{font-size:0.82rem; color:#6b7078; margin-top:10px;}
   .tool-results h3{font-size:1.1rem; margin-bottom:6px;}
   .result-block{border:1px solid var(--line); border-radius:4px; margin-top:16px; overflow:hidden;}
@@ -1085,6 +1105,7 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
     <button class="btn btn-primary" id="runBtn" disabled>Process it</button>
     <button class="btn btn-ghost" id="resetBtn">Reset</button>
     <div class="tool-error" id="errorMsg"></div>
+    <div class="upload-status" id="uploadStatus" aria-live="polite"></div>
   </div>
 
   <div class="tool-panel" id="lockedPanel" style="display:none;">
@@ -1367,12 +1388,21 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
 
       const copyBox = document.createElement('div');
       copyBox.style.marginTop = '8px';
-      copyBox.innerHTML = `<textarea readonly style="width:100%; min-height:70px; font-size:0.8rem;">${fullMessage}\n\nReply to: ${email}\nSend to: quickfixdata@gmail.com</textarea>
-        <button type="button" id="copyContactBtn" style="margin-top:6px;">Copy message</button>`;
+      const copyTextarea = document.createElement('textarea');
+      copyTextarea.readOnly = true;
+      copyTextarea.style.cssText = 'width:100%; min-height:70px; font-size:0.8rem;';
+      copyTextarea.value = `${fullMessage}\n\nReply to: ${email}\nSend to: quickfixdata@gmail.com`;
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.id = 'copyContactBtn';
+      copyBtn.style.marginTop = '6px';
+      copyBtn.textContent = 'Copy message';
+      copyBox.appendChild(copyTextarea);
+      copyBox.appendChild(copyBtn);
       note.after(copyBox);
-      document.getElementById('copyContactBtn').addEventListener('click', () => {
-        navigator.clipboard.writeText(copyBox.querySelector('textarea').value);
-        document.getElementById('copyContactBtn').textContent = 'Copied ✓';
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(copyTextarea.value);
+        copyBtn.textContent = 'Copied ✓';
       });
 
       submitBtn.textContent = 'Send inquiry →';
@@ -1397,6 +1427,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   const runBtn = document.getElementById('runBtn');
   const resetBtn = document.getElementById('resetBtn');
   const errorMsg = document.getElementById('errorMsg');
+  const uploadStatus = document.getElementById('uploadStatus');
   const resultsPanel = document.getElementById('resultsPanel');
   const summaryLine = document.getElementById('summaryLine');
   const resultBlocks = document.getElementById('resultBlocks');
@@ -1405,6 +1436,141 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   let rawCsvText = null;
   let fileLoaded = false;
   let pendingPhoto = null; // { base64, mediaType } when in photo mode instead of CSV mode
+  let currentLocalFileSummary = null;
+
+  function setUploadProgress(message, tone = 'busy') {
+    if (!uploadStatus) return;
+    if (!message) {
+      uploadStatus.style.display = 'none';
+      uploadStatus.className = 'upload-status';
+      uploadStatus.innerHTML = '';
+      return;
+    }
+    uploadStatus.style.display = 'block';
+    uploadStatus.className = `upload-status ${tone}`;
+    uploadStatus.textContent = message;
+  }
+
+  function summarizeLocalFile(file, csvText, sourceType) {
+    const text = String(csvText || '');
+    const nonEmptyLines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const headerLine = nonEmptyLines[0] || '';
+    const parseCells = (line) => {
+      const cells = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+          else inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+          cells.push(cur.trim());
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      cells.push(cur.trim());
+      return cells.filter((cell) => cell.length > 0);
+    };
+    const candidates = nonEmptyLines.slice(0, 8).map((line, index) => ({ index, cells: parseCells(line) }));
+    const scoreHeader = (cells) => {
+      const lower = cells.map((h) => h.toLowerCase());
+      const hit = (needles) => lower.some((h) => needles.some((n) => h.includes(n)));
+      return (hit(['client', 'customer', 'name', 'party', 'bill', 'vendor', 'supplier', 'debtor']) ? 3 : 0)
+        + (hit(['amount', 'total', 'price', 'balance', 'sum', 'outstanding', 'receivable', 'payable']) ? 3 : 0)
+        + (hit(['email', 'e-mail', 'mail']) ? 1 : 0)
+        + (hit(['date', 'deadline', 'paid', 'status']) ? 1 : 0)
+        + Math.min(cells.length, 6) * 0.1;
+    };
+    const best = candidates.reduce((chosen, item) => scoreHeader(item.cells) > scoreHeader(chosen.cells) ? item : chosen, candidates[0] || { index: 0, cells: [] });
+    const headers = best.cells;
+    const lowerHeaders = headers.map((h) => h.toLowerCase());
+    const hasAny = (needles) => lowerHeaders.some((h) => needles.some((n) => h.includes(n)));
+    const sizeBytes = file && typeof file.size === 'number' ? file.size : new Blob([text]).size;
+    const sizeLabel = sizeBytes >= 1024 * 1024
+      ? `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`
+      : `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+    const nullCount = text.split('\u0000').length - 1;
+    const replacementCount = text.split('\uFFFD').length - 1;
+    const binaryWarning = nullCount > 0 || replacementCount > Math.max(5, text.length * 0.01);
+    const rowCount = Math.max(0, nonEmptyLines.length - (headers.length ? best.index + 1 : 0));
+    return {
+      filename: file ? file.name : 'sample_messy_orders.csv',
+      sourceType,
+      sizeLabel,
+      sizeBytes,
+      rowCount,
+      headers,
+      headerLineNumber: headers.length ? best.index + 1 : null,
+      ignoredTitleRows: headers.length ? best.index : 0,
+      detected: {
+        name: hasAny(['client', 'customer', 'name', 'party', 'bill', 'vendor', 'supplier', 'debtor', 'contact', 'description']),
+        amount: hasAny(['amount', 'total', 'price', 'balance', 'sum', 'outstanding', 'receivable', 'payable']),
+        email: hasAny(['email', 'e-mail', 'mail']),
+        date: hasAny(['date', 'deadline']),
+        paid: hasAny(['paid', 'status']),
+      },
+      binaryWarning,
+    };
+  }
+
+  function renderUploadDiagnostics(diagnostics, targetMode = 'loaded') {
+    if (!uploadStatus || !diagnostics) return;
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+    const detected = diagnostics.detected || {};
+    const missingRequired = [];
+    if (detected.name === false) missingRequired.push('name/client column');
+    if (detected.amount === false) missingRequired.push('amount column');
+    const optional = [];
+    if (detected.email === false) optional.push('email');
+    if (detected.date === false) optional.push('date/due date');
+    if (detected.paid === false) optional.push('paid/status');
+    const headers = Array.isArray(diagnostics.headers) && diagnostics.headers.length
+      ? diagnostics.headers.slice(0, 12).map(esc).join(', ') + (diagnostics.headers.length > 12 ? '…' : '')
+      : 'No clear header row found yet';
+    const nextStep = diagnostics.nextStep || (missingRequired.length
+      ? `Before processing, check that your sheet has a clear ${missingRequired.join(' and ')}.`
+      : 'Next: choose what to run, then click Process it. You will see a free preview before payment.');
+    const issues = [];
+    if (diagnostics.binaryWarning) issues.push('This file contains unusual binary characters. If processing fails, export it again as CSV from Excel/Sheets.');
+    if (diagnostics.ignoredTitleRows > 0) issues.push(`Detected the header on line ${diagnostics.headerLineNumber}; ${diagnostics.ignoredTitleRows} title/blank row${diagnostics.ignoredTitleRows === 1 ? '' : 's'} before it will be ignored.`);
+    if (optional.length) issues.push(`Optional columns not detected: ${optional.join(', ')}. That is OK — the tool will use sensible defaults where possible.`);
+    if (diagnostics.serverMessage) issues.push(diagnostics.serverMessage);
+    uploadStatus.style.display = 'block';
+    uploadStatus.className = `upload-status ${diagnostics.tone || (missingRequired.length || diagnostics.binaryWarning ? 'warn' : 'ok')}`;
+    uploadStatus.innerHTML = `
+      <div class="upload-status-title">${esc(diagnostics.title || 'File ready to check')}</div>
+      <div>${esc(diagnostics.message || 'We read the file locally. Nothing has been uploaded yet.')}</div>
+      <div class="upload-status-grid">
+        <div class="upload-chip"><b>File</b>${esc(diagnostics.filename || '—')}</div>
+        <div class="upload-chip"><b>Detected type</b>${esc(diagnostics.sourceType || 'CSV')}</div>
+        <div class="upload-chip"><b>Size</b>${esc(diagnostics.sizeLabel || '—')}</div>
+        <div class="upload-chip"><b>Approx. rows</b>${esc(diagnostics.rowCount ?? '—')}</div>
+      </div>
+      <div class="upload-status-grid" style="margin-top:8px;">
+        <div class="upload-chip"><b>Name/client</b>${detected.name ? 'Detected' : 'Not obvious'}</div>
+        <div class="upload-chip"><b>Amount</b>${detected.amount ? 'Detected' : 'Not obvious'}</div>
+        <div class="upload-chip"><b>Email/date/status</b>${[detected.email && 'email', detected.date && 'date', detected.paid && 'status'].filter(Boolean).join(', ') || 'Optional columns not obvious'}</div>
+      </div>
+      <div style="margin-top:10px;"><b>Header preview:</b> ${headers}</div>
+      ${issues.length ? `<ul>${issues.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : ''}
+      <div style="margin-top:10px; font-weight:700;">${esc(nextStep)}</div>
+    `;
+  }
+
+  function describeUploadError(errorCode, diagnostics) {
+    const prefix = diagnostics && diagnostics.headers && diagnostics.headers.length
+      ? `Detected headers: ${diagnostics.headers.slice(0, 8).join(', ')}. `
+      : '';
+    if (errorCode === 'missing-columns') return `${prefix}Couldn't confidently find both a name/client column and an amount column. Rename the columns to something like “Client” and “Amount”, or message me the file directly.`;
+    if (errorCode === 'file-too-large') return 'That file is over the safe 8MB browser/Worker limit. Split it into smaller exports, remove unused sheets/columns, or message me directly for a manual cleanup.';
+    if (errorCode === 'too-many-rows') return 'That file has more than 60,000 rows. Split it by month/client/category, then upload each part separately, or message me for a manual large-file job.';
+    if (errorCode === 'not-valid-text') return 'This looks like a binary or corrupted file instead of readable CSV text. If it came from Excel, save/export it again as .xlsx or .csv and re-upload.';
+    if (errorCode === 'rate-limited') return 'Too many upload attempts from this connection right now. Wait a bit, then try again.';
+    return 'Could not process this upload right now. Check the file format and try again, or message me directly with the file.';
+  }
 
   document.querySelectorAll('.topt').forEach(opt => {
     opt.addEventListener('click', (e) => {
@@ -1439,9 +1605,17 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     rawCsvText = SAMPLE_CSV;
     pendingPhoto = null;
     fileLoaded = true;
+    currentLocalFileSummary = summarizeLocalFile(null, SAMPLE_CSV, 'Sample CSV');
     filenameEl.textContent = 'sample_messy_orders.csv (demo data loaded)';
     runBtn.disabled = false;
     errorMsg.textContent = '';
+    renderUploadDiagnostics({
+      ...currentLocalFileSummary,
+      title: 'Demo file loaded',
+      message: 'This sample includes messy spacing, duplicates, mixed date formats, and paid/unpaid rows so you can see what gets fixed.',
+      nextStep: 'Next: choose the services you want, then click Process it to see the free preview.',
+      tone: 'ok',
+    });
   });
 
   // --- Photo-to-data (OCR via Claude vision) ---
@@ -1461,10 +1635,12 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     if (!file) return;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       errorMsg.textContent = 'Please choose a JPEG, PNG, or WebP photo.';
+      setUploadProgress('Unsupported photo type. Use JPEG, PNG, or WebP so the ledger page can be read safely.', 'err');
       return;
     }
     if (file.size > MAX_PHOTO_BYTES) {
       errorMsg.textContent = 'That photo is too large — try a lower-resolution shot, or crop to just the ledger page.';
+      setUploadProgress('Photo is too large for safe processing. Crop to just the page or take a lower-resolution photo, then upload again.', 'err');
       return;
     }
     const reader = new FileReader();
@@ -1474,12 +1650,30 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       pendingPhoto = { base64, mediaType: file.type };
       rawCsvText = null;
       fileLoaded = true;
+      currentLocalFileSummary = {
+        filename: file.name,
+        sourceType: 'Photo ledger',
+        sizeLabel: file.size >= 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(2)} MB` : `${Math.max(1, Math.round(file.size / 1024))} KB`,
+        rowCount: 'AI will detect',
+        headers: [],
+        detected: { name: false, amount: false, email: false, date: false, paid: false },
+      };
       photoFilenameEl.textContent = `${file.name} (will be read by AI)`;
       filenameEl.textContent = '';
       runBtn.disabled = false;
       errorMsg.textContent = '';
+      renderUploadDiagnostics({
+        ...currentLocalFileSummary,
+        title: 'Photo ready for AI reading',
+        message: 'Nothing has been processed yet. The next step reads the page into editable CSV so you can correct it before pricing.',
+        nextStep: 'Next: click Read photo & process, review the extracted rows, then continue only if they look right.',
+        tone: 'busy',
+      });
     };
-    reader.onerror = () => { errorMsg.textContent = 'Could not read that photo — try again.'; };
+    reader.onerror = () => {
+      errorMsg.textContent = 'Could not read that photo — try again.';
+      setUploadProgress('The browser could not read this photo. Try taking a fresh photo with good lighting, then upload again.', 'err');
+    };
     reader.readAsDataURL(file);
   });
 
@@ -1494,14 +1688,19 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     const isCsv = nameLower.endsWith('.csv');
     const isExcel = nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls');
 
+    errorMsg.textContent = '';
     if (!isCsv && !isExcel) {
-      errorMsg.textContent = 'Please upload a .csv or .xlsx file.';
+      errorMsg.textContent = 'Please upload a .csv, .xlsx, or .xls file.';
+      setUploadProgress(`Unsupported file type: ${file.name}. Export from Excel/Google Sheets as CSV or XLSX, then upload again.`, 'err');
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
-      errorMsg.textContent = `File is too large (max 8MB — that's roughly 60,000+ rows for a typical export). Message me directly and I'll handle it by hand, or split it into smaller files.`;
+      errorMsg.textContent = 'File is too large for instant upload.';
+      setUploadProgress(`File is too large (${(file.size / (1024 * 1024)).toFixed(2)} MB). The instant uploader is capped at 8MB / about 60,000 rows to keep processing reliable. Split the file into smaller exports, remove unused sheets/columns, or message me directly for a manual large-file job.`, 'err');
       return;
     }
+
+    setUploadProgress(isCsv ? 'Reading CSV locally…' : 'Reading Excel file locally and converting the first sheet to CSV…', 'busy');
 
     if (isCsv) {
       const reader = new FileReader();
@@ -1509,12 +1708,22 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
         rawCsvText = e.target.result;
         pendingPhoto = null;
         fileLoaded = true;
-        filenameEl.textContent = file.name;
+        currentLocalFileSummary = summarizeLocalFile(file, rawCsvText, 'CSV');
+        filenameEl.textContent = `${file.name} (${currentLocalFileSummary.rowCount} data row${currentLocalFileSummary.rowCount === 1 ? '' : 's'} detected before cleanup)`;
         photoFilenameEl.textContent = '';
         runBtn.disabled = false;
         errorMsg.textContent = '';
+        renderUploadDiagnostics({
+          ...currentLocalFileSummary,
+          title: currentLocalFileSummary.binaryWarning ? 'CSV loaded, but please review' : 'CSV loaded successfully',
+          message: 'The file was read in your browser. It has not been uploaded yet; processing starts only when you click Process it.',
+          tone: currentLocalFileSummary.binaryWarning ? 'warn' : 'ok',
+        });
       };
-      reader.onerror = () => { errorMsg.textContent = 'Could not read that file.'; };
+      reader.onerror = () => {
+        errorMsg.textContent = 'Could not read that file.';
+        setUploadProgress('The browser could not read this CSV. Try exporting it again from Excel/Google Sheets, then upload the new copy.', 'err');
+      };
       reader.readAsText(file);
     } else {
       const reader = new FileReader();
@@ -1527,22 +1736,36 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
           rawCsvText = XLSX.utils.sheet_to_csv(sheet);
           pendingPhoto = null;
           fileLoaded = true;
-          filenameEl.textContent = file.name;
+          currentLocalFileSummary = summarizeLocalFile(file, rawCsvText, `Excel → CSV (${firstSheetName || 'first sheet'})`);
+          filenameEl.textContent = `${file.name} (${firstSheetName || 'first sheet'} converted, ${currentLocalFileSummary.rowCount} data row${currentLocalFileSummary.rowCount === 1 ? '' : 's'} detected before cleanup)`;
           photoFilenameEl.textContent = '';
           runBtn.disabled = false;
           errorMsg.textContent = '';
+          renderUploadDiagnostics({
+            ...currentLocalFileSummary,
+            title: 'Excel file converted successfully',
+            message: `Only the first worksheet (${firstSheetName || 'first sheet'}) was converted for this upload. Other sheets are ignored by the instant tool.`,
+            serverMessage: workbook.SheetNames.length > 1 ? `Ignored sheets: ${workbook.SheetNames.slice(1).join(', ')}.` : '',
+            tone: 'ok',
+          });
         } catch (err) {
-          errorMsg.textContent = 'Could not read that Excel file — message me directly and I\'ll handle it by hand.';
+          errorMsg.textContent = 'Could not read that Excel file.';
+          setUploadProgress("This Excel file could not be converted in the browser. Save/export the first sheet as CSV and try again, or message me directly and I'll handle it by hand.", 'err');
         }
       };
-      reader.onerror = () => { errorMsg.textContent = 'Could not read that file.'; };
+      reader.onerror = () => {
+        errorMsg.textContent = 'Could not read that file.';
+        setUploadProgress('The browser could not read this Excel file. Try saving a fresh copy or exporting as CSV, then upload again.', 'err');
+      };
       reader.readAsArrayBuffer(file);
     }
   }
 
+
   resetBtn.addEventListener('click', () => {
     rawCsvText = null;
     pendingPhoto = null;
+    currentLocalFileSummary = null;
     fileLoaded = false;
     filenameEl.textContent = '';
     photoFilenameEl.textContent = '';
@@ -1550,6 +1773,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     photoInput.value = '';
     runBtn.disabled = true;
     errorMsg.textContent = '';
+    setUploadProgress('', 'busy');
     resultsPanel.style.display = 'none';
     lockedPanel.style.display = 'none';
     expiredPanel.style.display = 'none';
@@ -1657,31 +1881,45 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       return count > 0 ? `<div style="width:${pct}%; background:${color};" title="${label}: ${count}"></div>` : '';
     }).join('');
 
-    const statusOk = report.skippedMalformed === 0 && (!anomalies || anomalies.length === 0);
+    const statusOk = report.skippedMalformed === 0 && report.skippedMissingData === 0 && (!anomalies || anomalies.length === 0);
+    const nextSteps = [];
+    if (report.skippedMalformed > 0) nextSteps.push(`${report.skippedMalformed} row${report.skippedMalformed === 1 ? '' : 's'} looked malformed or suspicious and were ignored instead of guessing wrong columns.`);
+    if (report.skippedMissingData > 0) nextSteps.push(`${report.skippedMissingData} row${report.skippedMissingData === 1 ? '' : 's'} were missing a usable client/name or amount, so they were skipped.`);
+    if (report.skippedDuplicate > 0) nextSteps.push(`${report.skippedDuplicate} exact duplicate row${report.skippedDuplicate === 1 ? '' : 's'} were removed automatically.`);
+    if (report.formulaInjectionNeutralized > 0) nextSteps.push(`${report.formulaInjectionNeutralized} cell${report.formulaInjectionNeutralized === 1 ? '' : 's'} that could trigger spreadsheet formulas were neutralized for safety.`);
+    if (anomalies && anomalies.length) nextSteps.push(`${anomalies.length} unusually large amount${anomalies.length === 1 ? '' : 's'} were flagged — review before sending invoices.`);
+    if (!nextSteps.length) nextSteps.push('No row-level problems were found. Review the preview/results, then continue with payment or downloads.');
+
     const block = document.createElement('div');
     block.className = 'result-block';
     block.innerHTML = `
-      <div class="result-head"><span>📊 Data Processing &amp; Safety Report</span></div>
+      <div class="result-head"><span>📊 Upload Diagnostics &amp; Safety Report</span></div>
       <div style="padding:16px;">
-        <div style="display:flex; height:22px; border-radius:5px; overflow:hidden; margin-bottom:10px;">${barsHtml}</div>
+        <div style="display:flex; height:22px; border-radius:5px; overflow:hidden; margin-bottom:10px; background:#EEF1F6;">${barsHtml || '<div style="width:100%; background:#EEF1F6;"></div>'}</div>
         <div style="font-size:0.8rem; color:#666; margin-bottom:14px;">
-          <span style="color:#0F6E5C;">■</span> Processed ${report.processedRows} &nbsp;
-          <span style="color:#c0392b;">■</span> Malformed ${report.skippedMalformed} &nbsp;
-          <span style="color:#d9a621;">■</span> Missing data ${report.skippedMissingData} &nbsp;
-          <span style="color:#999;">■</span> Duplicate ${report.skippedDuplicate}
+          <span style="color:#0F6E5C;">■</span> Kept ${report.processedRows} &nbsp;
+          <span style="color:#c0392b;">■</span> Malformed ignored ${report.skippedMalformed} &nbsp;
+          <span style="color:#d9a621;">■</span> Missing data skipped ${report.skippedMissingData} &nbsp;
+          <span style="color:#999;">■</span> Duplicates removed ${report.skippedDuplicate}
         </div>
         <div style="font-size:0.85rem; line-height:1.7;">
-          Formula-injection attempts neutralized: <b>${report.formulaInjectionNeutralized}</b><br>
-          Malware/binary content scan: <b>PASSED</b><br>
-          Unusual-amount check: <b>${report.anomalyCheckPerformed ? `Performed (${(anomalies||[]).length} flagged)` : 'Not enough data (need 4+ rows)'}</b>
+          Input data rows found: <b>${report.totalInputRows}</b><br>
+          Rows kept for output: <b>${report.processedRows}</b><br>
+          Automatic spreadsheet-formula safety fixes: <b>${report.formulaInjectionNeutralized}</b><br>
+          Binary/malware-style text check: <b>PASSED</b><br>
+          Unusual-amount check: <b>${report.anomalyCheckPerformed ? `Performed (${(anomalies||[]).length} flagged)` : 'Not enough clean amount rows (need 4+)'}</b>
         </div>
+        <ul style="margin:12px 0 0 18px; font-size:0.85rem; line-height:1.6;">
+          ${nextSteps.map((item) => `<li>${String(item).replace(/[&<>"']/g, (ch) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]))}</li>`).join('')}
+        </ul>
         <div style="margin-top:12px; font-weight:700; color:${statusOk ? '#0F6E5C' : '#c0392b'};">
-          ${statusOk ? '✅ ALL CLEAR' : '⚠ REVIEW RECOMMENDED'}
+          ${statusOk ? '✅ READY — review the output/preview, then continue.' : '⚠ REVIEW RECOMMENDED — check skipped rows or flagged amounts before using the output.'}
         </div>
       </div>
     `;
     resultBlocks.appendChild(block);
   }
+
 
   const WORKER_URL = "https://api.quickfixdata.in";
 
@@ -2083,6 +2321,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     errorMsg.textContent = '';
     expiredPanel.style.display = 'none';
     resultsPanel.style.display = 'none';
+    setUploadProgress(sourceIsPhoto ? 'Checking the reviewed photo data…' : 'Uploading securely and checking columns…', 'busy');
 
     try {
       const memberEmail = document.getElementById('memberEmailInput').value.trim() || undefined;
@@ -2094,6 +2333,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'processing-error');
 
+      setUploadProgress('Rows cleaned, duplicates checked, and preview prepared. Building the result screen…', 'busy');
       currentSessionId = result.sessionId;
       currentPrice = result.price || 0;
 
@@ -2106,12 +2346,13 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
         if (result.invoices !== undefined) { renderBlock(`invoices (${result.invoices.length})`, result.invoices.join('\n\n' + '-'.repeat(50) + '\n\n'), 'invoices.txt'); renderTallyButton(); }
         if (result.reminders !== undefined) renderBlock(`reminders (${result.reminders.length})`, result.reminders.join('\n\n' + '-'.repeat(50) + '\n\n'), 'reminders.txt');
         renderSafetyReport(result.report, result.anomalies);
+        setUploadProgress('Active monthly plan found — your processed results are unlocked below.', 'ok');
         resultsPanel.style.display = 'block';
         resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
       }
 
-      lockedSummary.textContent = `${result.totalRows} unique row(s) processed. Pay to unlock below.`;
+      lockedSummary.textContent = `${result.totalRows} unique row(s) processed. A free preview is shown below; pay only after you confirm it looks right.`;
       document.getElementById('priceAmt').textContent = `₹${currentPrice}`;
       renderPriceBreakdown(result.priceBreakdown);
       renderOptionLocks({ clean: false, invoice: false, reminder: false });
@@ -2126,21 +2367,26 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
         }
       }
 
+      const previewNote = result.previewRows && result.previewRows.length
+        ? `Free preview ready: showing ${result.previewRows.length} cleaned row${result.previewRows.length === 1 ? '' : 's'} before payment. Full files stay locked until payment is confirmed.`
+        : 'File processed, but there were no clean preview rows to show. Check the row count and contact me if this looks unexpected.';
+      setUploadProgress(previewNote, result.previewRows && result.previewRows.length ? 'ok' : 'warn');
+
       lockedPanel.style.display = 'block';
       lockedPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
       startCountdown(result.expiresIn);
       startPolling(result.sessionId);
     } catch (err) {
-      errorMsg.textContent = err.message === 'missing-columns'
-        ? "Couldn't find a name and amount column in this file — message me your file directly and I'll fix it by hand instead."
-        : err.message === 'file-too-large'
-        ? 'That file is too large to process here (max 8MB) — message me directly and I\'ll handle it by hand, or split it up.'
-        : err.message === 'too-many-rows'
-        ? 'That file has too many rows to process here (max 60,000) — message me directly and I\'ll handle it by hand, or split it up.'
-        : err.message === 'not-valid-text'
-        ? "This doesn't look like a valid CSV file — please double-check and try again, or message me directly."
-        : 'Could not reach the processing server — message me directly and I\'ll take a look.';
+      const friendly = describeUploadError(err.message, currentLocalFileSummary);
+      errorMsg.textContent = friendly;
+      renderUploadDiagnostics({
+        ...(currentLocalFileSummary || { filename: 'Upload', sourceType: 'File', sizeLabel: '—', rowCount: '—', headers: [], detected: {} }),
+        title: 'Upload needs attention',
+        message: friendly,
+        nextStep: 'Fix the file using the guidance above, then upload again. If you need help, message me directly with the file.',
+        tone: 'err',
+      });
     } finally {
       runBtn.disabled = false;
       runBtn.textContent = pendingPhoto ? 'Read photo & process' : 'Process it';
@@ -2521,7 +2767,13 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'referral-failed');
-      resultEl.innerHTML = `<b>${data.partner.name}</b>${data.partner.specialty ? ' — ' + data.partner.specialty : ''}<br>${data.partner.contact}`;
+      resultEl.textContent = '';
+      const partnerName = document.createElement('b');
+      partnerName.textContent = data.partner.name || 'CA partner';
+      resultEl.appendChild(partnerName);
+      if (data.partner.specialty) resultEl.appendChild(document.createTextNode(` — ${data.partner.specialty}`));
+      resultEl.appendChild(document.createElement('br'));
+      resultEl.appendChild(document.createTextNode(data.partner.contact || 'Contact details unavailable'));
       caReferralBtn.style.display = 'none';
     } catch (err) {
       resultEl.textContent = err.message === 'no-partners-available'
@@ -2880,15 +3132,33 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     window.location.href = mailtoUrl;
     const wrap = document.createElement('div');
     wrap.className = 'chat-msg bot';
-    wrap.innerHTML = `If nothing opened, <a href="${mailtoUrl}">click here</a>, or copy this and send it any way you like:<br>
-      <textarea readonly style="width:100%; min-height:60px; font-size:0.78rem; margin-top:6px;">${message}\n\nReply to: ${email || '(not given)'}\nSend to: quickfixdata@gmail.com</textarea>
-      <div style="margin-top:6px; font-size:0.82rem; color:#666;">If I'm unavailable, I aim to reply within 48 hours.</div>
-      <button type="button" id="chatCopyBtn" style="margin-top:4px; font-size:0.78rem;">Copy message</button>`;
+    wrap.appendChild(document.createTextNode('If nothing opened, '));
+    const mailLink = document.createElement('a');
+    mailLink.href = mailtoUrl;
+    mailLink.textContent = 'click here';
+    wrap.appendChild(mailLink);
+    wrap.appendChild(document.createTextNode(', or copy this and send it any way you like:'));
+    wrap.appendChild(document.createElement('br'));
+    const chatTextarea = document.createElement('textarea');
+    chatTextarea.readOnly = true;
+    chatTextarea.style.cssText = 'width:100%; min-height:60px; font-size:0.78rem; margin-top:6px;';
+    chatTextarea.value = `${message}\n\nReply to: ${email || '(not given)'}\nSend to: quickfixdata@gmail.com`;
+    const fallbackNote = document.createElement('div');
+    fallbackNote.style.cssText = 'margin-top:6px; font-size:0.82rem; color:#666;';
+    fallbackNote.textContent = "If I'm unavailable, I aim to reply within 48 hours.";
+    const chatCopyBtn = document.createElement('button');
+    chatCopyBtn.type = 'button';
+    chatCopyBtn.id = 'chatCopyBtn';
+    chatCopyBtn.style.cssText = 'margin-top:4px; font-size:0.78rem;';
+    chatCopyBtn.textContent = 'Copy message';
+    wrap.appendChild(chatTextarea);
+    wrap.appendChild(fallbackNote);
+    wrap.appendChild(chatCopyBtn);
     chatBody.appendChild(wrap);
     chatBody.scrollTop = chatBody.scrollHeight;
-    document.getElementById('chatCopyBtn').addEventListener('click', () => {
-      navigator.clipboard.writeText(wrap.querySelector('textarea').value);
-      document.getElementById('chatCopyBtn').textContent = 'Copied ✓';
+    chatCopyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(chatTextarea.value);
+      chatCopyBtn.textContent = 'Copied ✓';
     });
   }
 
