@@ -1158,9 +1158,13 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
     <div class="ask-data-box" style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line);">
       <span class="step-label">💬 Ask about your data</span>
       <p class="tool-hint" style="margin-bottom:10px;">e.g. "who hasn't paid yet?" or "what's the total overdue amount?"</p>
+      <label style="display:flex; align-items:center; gap:8px; font-size:0.82rem; margin-bottom:10px; cursor:pointer;">
+        <input type="checkbox" id="askDataConsent">
+        I agree to send a summary of my data to Anthropic's API (Claude) to answer my question — used only for this request, not stored afterward.
+      </label>
       <div class="chat-input-row" style="border-top:none; padding:0;">
-        <input type="text" id="askDataInput" placeholder="Ask a question…">
-        <button id="askDataBtn">Ask</button>
+        <input type="text" id="askDataInput" placeholder="Ask a question…" disabled>
+        <button id="askDataBtn" disabled>Ask</button>
       </div>
       <div class="admin-result" id="askDataResult"></div>
     </div>
@@ -2452,10 +2456,27 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   const askDataBtn = document.getElementById('askDataBtn');
   const askDataInput = document.getElementById('askDataInput');
   const askDataResult = document.getElementById('askDataResult');
+  const askDataConsent = document.getElementById('askDataConsent');
+
+  // Enable the ask-data input only after consent is given and the session
+  // is unlocked — the privacy note in the footer tells users about this,
+  // but the checkbox makes it an explicit opt-in before any data leaves
+  // the browser rather than an after-the-fact notice.
+  if (askDataConsent) {
+    askDataConsent.addEventListener('change', () => {
+      const enabled = askDataConsent.checked;
+      askDataInput.disabled = !enabled;
+      askDataBtn.disabled = !enabled;
+    });
+  }
 
   async function askData() {
     const question = askDataInput.value.trim();
     if (!question || !currentSessionId) return;
+    if (askDataConsent && !askDataConsent.checked) {
+      askDataResult.textContent = 'Please agree to the data-sharing consent above first.';
+      return;
+    }
     askDataBtn.disabled = true;
     askDataResult.textContent = 'Thinking…';
     try {
