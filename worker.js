@@ -2300,6 +2300,54 @@ async function executeConfirmedClaim(env, kind, id, source) {
     }
   }
 
+  if (kind === "batch") {
+    const batchId = id;
+    const batchRaw = await env.SESSIONS.get(`batch:${batchId}`);
+    if (!batchRaw) return { status: 404, body: { error: "batch-not-found-or-expired" } };
+    const batch = JSON.parse(batchRaw);
+
+    // Unlock each per-file record
+    const unlockedFiles = [];
+    for (const meta of batch.files) {
+      const fileId = meta.fileId;
+      const raw = await env.SESSIONS.get(`batchfile:${batchId}:${fileId}`);
+      if (!raw) continue;
+      const fileRec = JSON.parse(raw);
+      fileRec.unlocked = { clean: true, invoice: true, reminder: true };
+      if (fileRec.unlocked.invoice) await assignInvoiceNumbers(env, fileRec);
+      await env.SESSIONS.put(`batchfile:${batchId}:${fileId}`, JSON.stringify(fileRec), { expirationTtl: 3 * 24 * 60 * 60 });
+      unlockedFiles.push({ fileId, filename: meta.filename, totalRows: fileRec.result ? fileRec.result.totalRows : meta.totalRows });
+    }
+
+    // Mark batch as unlocked and extend TTL
+    batch.unlocked = true;
+    batch.unlockedAt = Date.now();
+    batch.unlockedFiles = unlockedFiles;
+    await env.SESSIONS.put(`batch:${batchId}`, JSON.stringify(batch), { expirationTtl: 3 * 24 * 60 * 60 });
+
+    await incrementStat(env, "paid_sessions");
+    await incrementStat(env, "revenue_inr", claim.amount || batch.totalPrice || 0);
+    await logTransaction(env, {
+      type: source === "auto-bank-email" ? "upi-auto-confirmed-batch" : "upi-manual-batch",
+      isAdmin: false,
+      email: claim.email || batch.memberEmail || "",
+      amount: claim.amount || batch.totalPrice || 0,
+      referenceId: claim.utr,
+      batchId,
+      fileCount: batch.fileCount,
+      fileHash: null,
+      sourceLabel: batch.sourceLabel || null,
+    });
+
+    if (env.RESEND_API_KEY && batch.memberEmail) {
+      await sendEmailIfConfigured(env, batch.memberEmail, "Batch payment confirmed — files unlocked",
+        `Your batch payment (UTR ${claim.utr}) for ${batch.fileCount} file(s) has been confirmed and your files are unlocked — refresh the page to see your results.` + supportFallbackText(env));
+    }
+
+    await env.SESSIONS.delete(claimKey);
+    return { status: 200, body: { status: "ok", unlocked: true, batchId, fileCount: batch.fileCount } };
+  }
+
   return { status: 400, body: { error: "unknown-claim-kind" } };
 }
 
@@ -3181,6 +3229,146 @@ async function handleAction(action, body, request, env) {
           `Session: ${sessionId}\nClaimed amount: ₹${amount}\nUTR entered by client: ${utr}\n\nCheck your UPI app/bank statement for ₹${amount} and confirm or reject in the admin panel -> Payment claims.`);
       }
       return jsonResponse({ status: "pending-confirmation" });
+    }
+
+    // --- get_batch_payment_info (UPI QR for batch purchase) ---
+    if (action === "get_batch_payment_info") {
+      const { upiId, payeeName } = resolveUpiIdentity(env);
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const ok = await checkRateLimit(env, ip, "batch-payment-info", 30);
+      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
+
+      const { batchId } = body;
+      if (!batchId) return jsonResponse({ error: "missing-batch" }, 400);
+      const raw = await env.SESSIONS.get(`batch:${batchId}`);
+      if (!raw) return jsonResponse({ error: "batch-not-found-or-expired" }, 404);
+      const batch = JSON.parse(raw);
+      if (batch.unlocked) return jsonResponse({ error: "already-unlocked" }, 400);
+      const price = batch.totalPrice || 0;
+      if (!price) return jsonResponse({ error: "nothing-to-pay" }, 400);
+
+      const amount = uniqueAmountFor(price, batchId);
+      const now = Date.now();
+      batch.paymentInfo = batch.paymentInfo || {};
+      if (!batch.paymentInfo.referenceCode) batch.paymentInfo.referenceCode = generatePaymentReferenceCode("QFD-BATCH", batchId);
+      if (!batch.paymentInfo.firstRequestedAt) batch.paymentInfo.firstRequestedAt = now;
+      if (!batch.paymentInfo.extensions) batch.paymentInfo.extensions = 0;
+      if (batch.paymentInfo.firstRequestedAt + PAYMENT_INFO_MAX_WINDOW_SECONDS * 1000 < now) {
+        return jsonResponse({ error: "payment-window-expired" }, 410);
+      }
+      if (batch.paymentInfo.extensions >= PAYMENT_INFO_MAX_EXTENSIONS) {
+        return jsonResponse({ error: "payment-window-locked" }, 429);
+      }
+      const cooldownMs = 30_000;
+      if (!batch.paymentInfo.lastExtendedAt || Date.now() - batch.paymentInfo.lastExtendedAt > cooldownMs) {
+        batch.paymentInfo.extensions += 1;
+        batch.paymentInfo.lastExtendedAt = Date.now();
+      }
+      await env.SESSIONS.put(`batch:${batchId}`, JSON.stringify(batch), { expirationTtl: PAYMENT_INFO_MAX_WINDOW_SECONDS });
+
+      const referenceCode = batch.paymentInfo.referenceCode;
+      const upiUri = buildUpiUri(upiId, payeeName, amount, referenceCode);
+
+      await logTransaction(env, {
+        type: "batch-payment-info-extension",
+        isAdmin: false,
+        email: batch.memberEmail || "",
+        amount: price,
+        referenceId: referenceCode,
+        batchId,
+        fileCount: batch.fileCount,
+      });
+
+      return jsonResponse({ upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note: referenceCode, referenceCode, payeeVpa: upiId, payeeName, batchId });
+    }
+
+    // --- submit_batch_payment_claim ---
+    if (action === "submit_batch_payment_claim") {
+      const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      const ok = await checkRateLimit(env, ip, "batch-claim-submit", 15);
+      if (!ok) return jsonResponse({ error: "rate-limited" }, 429);
+
+      const { batchId } = body;
+      const utr = String(body.utr || "").trim();
+      if (!batchId || !utr) return jsonResponse({ error: "missing-fields" }, 400);
+      if (!/^[A-Za-z0-9]{6,30}$/.test(utr)) return jsonResponse({ error: "utr-looks-invalid" }, 400);
+
+      const raw = await env.SESSIONS.get(`batch:${batchId}`);
+      if (!raw) return jsonResponse({ error: "batch-not-found-or-expired" }, 404);
+      const batch = JSON.parse(raw);
+      if (batch.unlocked) return jsonResponse({ status: "already-unlocked" });
+
+      if (!batch.paymentInfo || !batch.paymentInfo.referenceCode) {
+        batch.paymentInfo = batch.paymentInfo || {};
+        batch.paymentInfo.referenceCode = generatePaymentReferenceCode("QFD-BATCH", batchId);
+      }
+      if (batch.paymentInfo.firstRequestedAt && batch.paymentInfo.firstRequestedAt + PAYMENT_INFO_MAX_WINDOW_SECONDS * 1000 < Date.now()) {
+        return jsonResponse({ error: "payment-window-expired" }, 410);
+      }
+
+      const duplicateClaims = await findClaimsByUtr(env, utr);
+      if (duplicateClaims.length) {
+        await logError(env, "duplicate-utr-batch", `UTR ${utr} already used by ${duplicateClaims.map((c) => `${c.kind}:${c.id}`).join(", ")}`);
+        return jsonResponse({ error: "duplicate-utr" }, 409);
+      }
+
+      const amount = uniqueAmountFor(batch.totalPrice || 0, batchId);
+      const claim = {
+        kind: "batch",
+        id: batchId,
+        utr,
+        referenceCode: batch.paymentInfo.referenceCode,
+        amount,
+        status: "pending",
+        claimedAt: Date.now(),
+        email: batch.memberEmail || "",
+      };
+      await env.SESSIONS.put(`claim:batch:${batchId}`, JSON.stringify(claim), { expirationTtl: 7 * 24 * 60 * 60 });
+      await env.SESSIONS.put(`batch:${batchId}`, JSON.stringify(batch), { expirationTtl: 3 * 24 * 60 * 60 });
+      // Extend per-file records as well
+      for (const meta of batch.files) {
+        const fileRaw = await env.SESSIONS.get(`batchfile:${batchId}:${meta.fileId}`);
+        if (fileRaw) {
+          const fileRec = JSON.parse(fileRaw);
+          await env.SESSIONS.put(`batchfile:${batchId}:${meta.fileId}`, JSON.stringify(fileRec), { expirationTtl: 3 * 24 * 60 * 60 });
+        }
+      }
+
+      if (env.OWNER_EMAIL) {
+        await sendEmailIfConfigured(env, env.OWNER_EMAIL, "New batch payment claim — confirm in admin panel",
+          `Batch: ${batchId}\nFiles: ${batch.fileCount}\nClaimed amount: ₹${amount}\nUTR: ${utr}\n\nCheck UPI app/bank statement for ₹${amount} and confirm or reject in admin panel -> Payment claims.`);
+      }
+      return jsonResponse({ status: "pending-confirmation" });
+    }
+
+    // --- check_batch (polling for batch unlock) ---
+    if (action === "check_batch") {
+      const { batchId } = body;
+      if (!batchId) return jsonResponse({ error: "missing-batch" }, 400);
+      const raw = await env.SESSIONS.get(`batch:${batchId}`);
+      if (!raw) return jsonResponse({ status: "expired" });
+      const batch = JSON.parse(raw);
+      const response = { status: batch.unlocked ? "fully-unlocked" : "locked", batchId, fileCount: batch.fileCount, totalRows: batch.totalRows, totalPrice: batch.totalPrice, unlocked: !!batch.unlocked };
+      if (batch.unlocked) {
+        const files = [];
+        for (const meta of batch.files) {
+          const fileRaw = await env.SESSIONS.get(`batchfile:${batchId}:${meta.fileId}`);
+          if (!fileRaw) continue;
+          const fileRec = JSON.parse(fileRaw);
+          files.push({
+            fileId: meta.fileId,
+            filename: meta.filename,
+            totalRows: fileRec.result ? fileRec.result.totalRows : meta.totalRows,
+            cleanCsv: fileRec.result ? fileRec.result.cleanCsv : undefined,
+            report: fileRec.result ? fileRec.result.report : undefined,
+            price: fileRec.price,
+          });
+        }
+        response.files = files;
+      } else {
+        response.files = batch.files.map(f=>({ fileId: f.fileId, filename: f.filename, totalRows: f.totalRows, price: f.price }));
+      }
+      return jsonResponse(response);
     }
 
     // --- get_subscription_payment_info (UPI QR for the monthly plan) ---

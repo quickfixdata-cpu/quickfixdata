@@ -2579,6 +2579,8 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   function stopTimers() {
     clearInterval(countdownInterval);
     clearInterval(pollInterval);
+    if(typeof batchPollInterval !== 'undefined' && batchPollInterval) clearInterval(batchPollInterval);
+    if(typeof stopBatchPolling === 'function') stopBatchPolling();
   }
 
   function startCountdown(seconds) {
@@ -2649,6 +2651,41 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       }
     }, 4000);
   }
+
+  // Milestone 7: batch polling for unlock + unlocked downloads
+  let batchPollInterval = null;
+  function startBatchPolling(batchId){
+    if(batchPollInterval) clearInterval(batchPollInterval);
+    batchPollInterval = setInterval(async ()=>{
+      try{
+        const res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check_batch', batchId }),
+        });
+        const data = await res.json();
+        if(data.status === 'expired'){
+          onSessionExpired();
+          return;
+        }
+        if(data.status === 'fully-unlocked' && data.files){
+          // Reuse batch results UI but now unlocked
+          renderBatchFileCards(data.files, true);
+          resultBlocks.innerHTML = '';
+          summaryLine.textContent = `Batch unlocked: ${data.fileCount} file(s), ${data.totalRows} row(s) — downloads ready.`;
+          (data.files||[]).forEach(f=>{
+            if(f.cleanCsv) renderBlock(`${f.filename} — ${f.totalRows} rows`, f.cleanCsv, f.filename);
+          });
+          resultsPanel.style.display = 'block';
+          lockedPanel.style.display = 'none';
+          stopTimers();
+          clearInterval(batchPollInterval);
+        }
+      } catch(e){ /* silent retry */ }
+    }, 4000);
+  }
+  function stopBatchPolling(){ if(batchPollInterval){ clearInterval(batchPollInterval); batchPollInterval=null; } }
+
 
   async function submitForProcessing(csvText, opts, sourceIsPhoto) {
     runBtn.disabled = true;
@@ -2904,6 +2941,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       lockedPanel.style.display = 'block';
       lockedPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       startCountdown(result.expiresIn);
+      startBatchPolling(result.batchId);
     } catch(err){
       const friendly = describeUploadError(err.message, currentLocalFileSummary);
       errorMsg.textContent = friendly;
@@ -2945,22 +2983,33 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   const payStatus = document.getElementById('payStatus');
   const qrBox = document.getElementById('qrBox');
   const showQrBtn = document.getElementById('showQrBtn');
-
   showQrBtn.addEventListener('click', async () => {
-    if (!currentSessionId) return;
+    if (!currentSessionId && !currentBatchId) return;
     showQrBtn.disabled = true;
     showQrBtn.textContent = 'Loading…';
     payStatus.textContent = '';
     payStatus.className = 'pay-status';
 
     try {
-      const res = await fetch(WORKER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'get_payment_info', sessionId: currentSessionId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'payment-info-failed');
+      let res, data;
+      if (currentBatchId) {
+        // Milestone 7: batch payment uses get_batch_payment_info
+        res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'get_batch_payment_info', batchId: currentBatchId }),
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'payment-info-failed');
+      } else {
+        res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'get_payment_info', sessionId: currentSessionId }),
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'payment-info-failed');
+      }
 
       document.getElementById('qrImg').src = data.qrImageUrl;
       document.getElementById('qrPayeeName').textContent = data.payeeName || '—';
@@ -2969,9 +3018,6 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       document.getElementById('upiAppLink').href = data.upiUri;
       qrBox.style.display = 'block';
       showQrBtn.style.display = 'none';
-      // The backend extends the session to an hour once a QR is issued —
-      // stretch the on-page countdown to match so it doesn't expire the
-      // view out from under someone mid-payment.
       if (startCountdown._extend) startCountdown._extend(3300);
     } catch (err) {
       payStatus.textContent = err.message === 'payments-not-configured'
@@ -2983,9 +3029,8 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       showQrBtn.textContent = 'Show payment QR →';
     }
   });
-
   document.getElementById('submitUtrBtn').addEventListener('click', async () => {
-    if (!currentSessionId) return;
+    if (!currentSessionId && !currentBatchId) return;
     const utr = document.getElementById('utrInput').value.trim();
     if (!utr) {
       payStatus.textContent = 'Enter the UTR/reference number your UPI app showed after paying.';
@@ -2997,21 +3042,29 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     btn.textContent = 'Submitting…';
 
     try {
-      const res = await fetch(WORKER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'submit_payment_claim', sessionId: currentSessionId, utr }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'claim-failed');
+      let res, data;
+      if (currentBatchId) {
+        res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'submit_batch_payment_claim', batchId: currentBatchId, utr }),
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'claim-failed');
+      } else {
+        res = await fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'submit_payment_claim', sessionId: currentSessionId, utr }),
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'claim-failed');
+      }
 
-      payStatus.textContent = '⏳ Got it — we\'re checking this against our records and will unlock your file as soon as it\'s confirmed (usually within a few hours). You\'ll get an email either way, so it\'s fine to close this tab.';
+      payStatus.textContent = '⏳ Got it — we\'re checking this against our records and will unlock your file(s) as soon as it\'s confirmed (usually within a few hours). You\'ll get an email either way, so it\'s fine to close this tab.';
       payStatus.className = 'pay-status ok';
       document.getElementById('utrInput').disabled = true;
       btn.textContent = 'Submitted';
-      // Session now lives for days while awaiting confirmation — the
-      // countdown display no longer means much, so stop showing it as
-      // an urgent timer.
       if (timerValue) timerValue.textContent = '⏳';
     } catch (err) {
       payStatus.textContent = err.message === 'utr-looks-invalid'
