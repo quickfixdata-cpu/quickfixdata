@@ -213,6 +213,18 @@ function supportFallbackText(env) {
   return `\n\nIf I'm unavailable, I aim to reply within 48 hours${contact}. For urgent issues, please include 'URGENT' in your subject.`;
 }
 
+// crypto.randomUUID polyfill for Workers compatibility — available in
+// the Cloudflare Workers runtime, but older compatibility dates may not
+// expose it yet. Falls back to Math.random-based UUID v4 generation.
+function safeRandomUUID() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  // Fallback UUID v4 for runtimes without crypto.randomUUID.
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 // Constant-time string comparison — plain `===` on secrets leaks timing
 // information an attacker can use to guess the key byte-by-byte. This
 // isn't the only defense (rate limiting below is the bigger one for a
@@ -257,12 +269,42 @@ function parseCsvLine(line) {
 // each line directly into its final form in a single pass, so only ONE
 // array of row objects ever exists in memory at a time.
 function parseCsv(text) {
+  // Avoid text.trim() on large strings (creates a full copy in memory).
+  // Instead, find the first non-whitespace character index and the last.
+  let start = 0, end = text.length;
+  while (start < end && (text[start] === ' ' || text[start] === '\t' || text[start] === '\n' || text[start] === '\r')) start++;
+  while (end > start && (text[end - 1] === ' ' || text[end - 1] === '\t' || text[end - 1] === '\n' || text[end - 1] === '\r')) end--;
+  const trimmed = start > 0 || end < text.length ? text.slice(start, end) : text;
+
   const lines = [];
-  for (const raw of text.trim().split(/\r?\n/)) {
+  for (const raw of trimmed.split(/\r?\n/)) {
     if (raw.trim().length > 0) lines.push(raw);
   }
-  const headers = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
-  return { headers, dataLines: lines, headerLineIncluded: true };
+
+  // Scan for the actual header line: some XLSX-to-CSV conversions produce
+  // a title row before the column headers (e.g. "Quarterly Report" on line
+  // 1, then the real headers on line 2). Iterate up to 10 lines looking
+  // for one that contains name-like AND amount-like column labels — if
+  // found, that becomes the header; otherwise fall back to lines[0].
+  let headerLine = lines[0];
+  // These must stay in sync with the findColumn candidates used in
+  // runFullPipeline below — the smart detection finds which line has the
+  // header row, but findColumn actually picks which columns are name/amount.
+  const CANDIDATE_NAME = ["client", "name", "customer", "bill", "party", "particulars", "debtor", "contact", "description", "vendor", "supplier"];
+  const CANDIDATE_AMOUNT = ["amount", "total", "price", "due", "balance", "sum", "outstanding", "receivable", "payable", "net", "gross", "invoice"];
+  const scanLimit = Math.min(lines.length, 10);
+  for (let i = 0; i < scanLimit; i++) {
+    const cells = parseCsvLine(lines[i]).map((h) => h.trim().toLowerCase()).filter((h) => h.length > 0);
+    const hasName = cells.some((c) => CANDIDATE_NAME.some((kw) => c.includes(kw)));
+    const hasAmount = cells.some((c) => CANDIDATE_AMOUNT.some((kw) => c.includes(kw)));
+    if (hasName && hasAmount) {
+      headerLine = lines[i];
+      break;
+    }
+  }
+
+  const headers = parseCsvLine(headerLine).map((h) => h.trim().toLowerCase());
+  return { headers, dataLines: lines, headerLineIncluded: true, headerLineIndex: lines.indexOf(headerLine) };
 }
 
 /* ---------------- Column matching, dates, formatting ---------------- */
@@ -289,10 +331,20 @@ function parseDate(raw) {
     return new Date(+m[1], +m[2] - 1, +m[3]);
   }
   if ((m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/))) {
-    let day = +m[1], month = +m[2];
+    let a = +m[1], b = +m[2];
     const year = +m[3];
-    if (day > 31 || month > 12) return null;
-    if (month > 12 || (day <= 12 && month > 12)) { const t = day; day = month; month = t; }
+    // Default assumption: DD/MM/YYYY (India). But if the second number
+    // is > 12 it can't be a month, so interpret as MM/DD/YYYY instead.
+    // If both are <= 12 the date is inherently ambiguous — we keep DD/MM.
+    let day, month;
+    if (b > 12) {
+      // Second number can't be a valid month (max 12), so swap: a = month, b = day
+      day = b; month = a;
+    } else {
+      // Default DD/MM
+      day = a; month = b;
+    }
+    if (day > 31 || month > 12 || day < 1 || month < 1) return null;
     return new Date(year, month - 1, day);
   }
   return null;
@@ -311,7 +363,7 @@ function sanitizeCell(value) {
 
 function csvCell(value) {
   const s = sanitizeCell(value);
-  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
 }
 
@@ -843,11 +895,48 @@ function buildDocxFromText(text) {
 /* ---------------- Core pipeline ---------------- */
 
 function runFullPipeline(csvText, opts) {
-  const { headers, dataLines } = parseCsv(csvText);
+  const { headers, dataLines, headerLineIndex } = parseCsv(csvText);
 
-  const nameCol = findColumn(headers, ["client name", "client", "name", "customer"]);
+  let nameCol = findColumn(headers, [
+    "client name", "client", "name", "customer", "bill", "party",
+    "particulars", "debtor", "customer name", "party name", "bill to",
+    "contact", "description", "vendor", "supplier",
+  ]);
   const emailCol = findColumn(headers, ["email", "e-mail", "mail"]);
-  const amountCol = findColumn(headers, ["amount due", "amount", "total", "price", "due amount"]);
+  let amountCol = findColumn(headers, [
+    "amount due", "amount", "total", "price", "due amount",
+    "balance", "sum", "outstanding", "receivable", "payable",
+    "net amount", "gross amount", "invoice amount",
+  ]);
+
+  // Fallback 1: if we have an amount column but no name column, use the
+  // first non-amount, non-email, non-date column as a best-effort name
+  // column. Covers exotic labels like "entity", "contact person", etc.
+  const SPECIAL_COLS = new Set(["email", "e-mail", "mail", "date", "due date", "deadline", "paid?", "paid", "status", "flag", "paid status"]);
+  if (!nameCol && amountCol) {
+    nameCol = headers.find((h) => h !== amountCol && h !== emailCol && !SPECIAL_COLS.has(h));
+  }
+  // Fallback 2: if we have a name column but no amount column, try using
+  // the last-ish column that looks like a number field.
+  if (nameCol && !amountCol) {
+    amountCol = headers.find((h) => h !== nameCol && h !== emailCol && !SPECIAL_COLS.has(h));
+  }
+  // Fallback 3: last resort — if neither name nor amount was found at all,
+  // assume column 0 is the name and column (last) is the amount. This
+  // handles truly exotic headers like "entity", "email", "advance", "date"
+  // where no label matches any known pattern.
+  if (!nameCol && !amountCol && headers.length >= 2) {
+    nameCol = headers[0];
+    // Skip the first column and look for the last non-special column.
+    for (let i = headers.length - 1; i >= 1; i--) {
+      if (!SPECIAL_COLS.has(headers[i]) && headers[i] !== nameCol) {
+        amountCol = headers[i];
+        break;
+      }
+    }
+    // If we couldn't find any non-special column, just use the second column.
+    if (!amountCol) amountCol = headers[1];
+  }
   const dateCol = findColumn(headers, ["due date", "date", "deadline"]);
   const paidCol = findColumn(headers, ["paid?", "paid", "status"]);
 
@@ -869,7 +958,10 @@ function runFullPipeline(csvText, opts) {
   // object directly — no intermediate generic {header: value} object per
   // line, so only one array of row objects exists in memory at a time
   // (see the comment on parseCsv for why this matters at larger file sizes).
-  for (let li = 1; li < dataLines.length; li++) {
+  // Skip all lines up to and including the header row (headerLineIndex
+  // accounts for title rows from XLSX conversions that precede the real
+  // column headers — e.g. "Quarterly Report" on line 0, headers on line 1).
+  for (let li = headerLineIndex + 1; li < dataLines.length; li++) {
     const cells = parseCsvLine(dataLines[li]);
     // A row with a different number of fields than the header almost
     // always means broken/malicious quoting (e.g. an unescaped comma
@@ -903,7 +995,7 @@ function runFullPipeline(csvText, opts) {
   const totalRows = rows.length;
   const out = { totalRows, cleanCsv: "", invoices: [], invoiceEmails: [], reminders: [], reminderEmails: [] };
   out.report = {
-    totalInputRows: dataLines.length - 1, // dataLines[0] is the header row; malformed lines are already counted here since they're still data lines
+    totalInputRows: dataLines.length - (headerLineIndex + 1), // data lines after the actual header row (accounts for title rows from XLSX conversions)
     processedRows: totalRows,
     skippedMalformed: malformedCount,
     skippedMissingData,
@@ -1055,14 +1147,31 @@ function uniqueAmountFor(baseAmountInr, idString) {
 
 function generatePaymentReferenceCode(prefix, idString) {
   const seed = String(idString || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase() || "X";
-  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
+  const suffix = safeRandomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
   return `${prefix}-${seed}${suffix}`;
+}
+
+// Cloudflare KV list() returns at most 1000 keys per call and supplies a
+// cursor for pagination. Every key-scanning function below uses this
+// helper instead of a single list() call, so results don't silently
+// truncate once the store grows past 1000 entries.
+async function kvListAll(env, prefix) {
+  const allKeys = [];
+  let cursor = undefined;
+  do {
+    const opts = { prefix };
+    if (cursor) opts.cursor = cursor;
+    const page = await env.SESSIONS.list(opts);
+    allKeys.push(...page.keys);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return { keys: allKeys };
 }
 
 async function findClaimsByUtr(env, utr) {
   if (!utr) return [];
   const normalized = String(utr).trim().toLowerCase();
-  const list = await env.SESSIONS.list({ prefix: "claim:" });
+  const list = await kvListAll(env, "claim:");
   const matches = [];
   for (const key of list.keys) {
     const raw = await env.SESSIONS.get(key.name);
@@ -1082,7 +1191,7 @@ async function findClaimsByUtr(env, utr) {
 async function findTransactionsByReferenceId(env, referenceId) {
   if (!referenceId) return [];
   const normalized = String(referenceId).trim().toLowerCase();
-  const list = await env.SESSIONS.list({ prefix: "txn:" });
+  const list = await kvListAll(env, "txn:");
   const matches = [];
   for (const key of list.keys) {
     const raw = await env.SESSIONS.get(key.name);
@@ -1102,7 +1211,7 @@ async function findTransactionsByReferenceId(env, referenceId) {
 async function findClaimsByReferenceCode(env, referenceCode) {
   if (!referenceCode) return [];
   const normalized = String(referenceCode).trim().toLowerCase();
-  const list = await env.SESSIONS.list({ prefix: "claim:" });
+  const list = await kvListAll(env, "claim:");
   const matches = [];
   for (const key of list.keys) {
     const raw = await env.SESSIONS.get(key.name);
@@ -1177,9 +1286,10 @@ async function sendEmailIfConfigured(env, to, subject, text, attachmentBase64, a
       body: JSON.stringify(payload),
     });
     const responseText = await res.text();
-    console.log("EMAIL TO:", to);
+    // Minimal logging — status code only, no PII (to, response body).
+    // The full response body is returned in the result object below for
+    // the calling code to handle; it doesn't need to go to stdout too.
     console.log("RESEND STATUS:", res.status);
-    console.log("RESEND RESPONSE:", responseText);
     
     return {
       sent: res.ok,
@@ -1402,7 +1512,10 @@ async function authenticateAdmin(env, ip, adminKey, actionName) {
 async function incrementStat(env, key, amount = 1) {
   const raw = await env.SESSIONS.get(`stat:${key}`);
   const current = raw ? parseFloat(raw) : 0;
-  await env.SESSIONS.put(`stat:${key}`, String(current + amount)); // no TTL — persists indefinitely
+  // Cap at 1 billion to prevent unbounded KV growth (at ~10k paid
+  // sessions/year that's ~100k years of runway, so no real limit).
+  const newValue = Math.min(current + amount, 1_000_000_000);
+  await env.SESSIONS.put(`stat:${key}`, String(newValue)); // no TTL — persists indefinitely
 }
 
 async function getStats(env) {
@@ -1654,16 +1767,19 @@ async function assignInvoiceNumbers(env, session) {
 }
 
 async function logTransaction(env, record) {
-  const id = crypto.randomUUID();
+  const id = safeRandomUUID();
   const entry = { id, timestamp: Date.now(), ...record };
   await env.SESSIONS.put(`txn:${String(entry.timestamp).padStart(14, "0")}_${id}`, JSON.stringify(entry)); // no TTL
   return entry;
 }
 
 async function listTransactions(env, limit = 200) {
-  const list = await env.SESSIONS.list({ prefix: "txn:", limit });
+  // When limit > 1000 we MUST paginate; for smaller limits a single call is fine.
+  const list = limit > 1000
+    ? await kvListAll(env, "txn:")
+    : await env.SESSIONS.list({ prefix: "txn:", limit });
   const records = await Promise.all(list.keys.map(async (k) => JSON.parse(await env.SESSIONS.get(k.name))));
-  return records.sort((a, b) => b.timestamp - a.timestamp); // newest first
+  return records.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit); // newest first, capped
 }
 
 function transactionsToCsv(records) {
@@ -1683,20 +1799,24 @@ function transactionsToCsv(records) {
 
 async function logError(env, context, errorMessage) {
   try {
-    const id = crypto.randomUUID();
+    const id = safeRandomUUID();
     const entry = { id, timestamp: Date.now(), context, error: String(errorMessage).slice(0, 500) };
     await env.SESSIONS.put(`errlog:${String(entry.timestamp).padStart(14, "0")}_${id}`, JSON.stringify(entry), {
       expirationTtl: 30 * 24 * 60 * 60, // keep 30 days, then auto-clean
     });
-  } catch {
-    // If even error logging fails, there's nothing more we can safely do here.
+  } catch (innerErr) {
+    // Last-resort fallback: if KV itself is down (or the key is too large)
+    // we still want SOME record of the failure in the Worker's own logs.
+    try { console.error("logError-failed", String(context), String(errorMessage).slice(0, 200), String(innerErr)); } catch {}
   }
 }
 
 async function listErrors(env, limit = 100) {
-  const list = await env.SESSIONS.list({ prefix: "errlog:", limit });
+  const list = limit > 1000
+    ? await kvListAll(env, "errlog:")
+    : await env.SESSIONS.list({ prefix: "errlog:", limit });
   const records = await Promise.all(list.keys.map(async (k) => JSON.parse(await env.SESSIONS.get(k.name))));
-  return records.sort((a, b) => b.timestamp - a.timestamp);
+  return records.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
 }
 
 /* ---------------- Main handler ---------------- */
@@ -1779,6 +1899,17 @@ export default {
       // bank-alert check, the CSV-attachment check, the UTR-reply check)
       // shares this same parsed result instead of each trying to read it
       // independently.
+
+      // Size check BEFORE reading the full stream into memory: reject
+      // oversized raw emails (> 20MB) to prevent OOM from maliciously
+      // large messages with huge attachments or base64-embedded blobs.
+      const maxRawEmailBytes = 20 * 1024 * 1024; // 20MB
+      const contentLength = parseInt(message.headers.get("Content-Length") || "0", 10);
+      if (contentLength > maxRawEmailBytes) {
+        await logError(env, "email-intake-too-large", `Rejected oversized email (${contentLength} bytes) from ${senderEmail}`);
+        return; // silently drop — no reply to an attacker's oversized payload
+      }
+
       const rawBuffer = await new Response(message.raw).arrayBuffer();
       const rawText = new TextDecoder("utf-8").decode(rawBuffer);
       const { attachments, textBody } = await parseMimeEmail(rawBuffer);
@@ -1897,7 +2028,7 @@ export default {
         const { upiId, payeeName } = resolveUpiIdentity(env);
         try {
           const price = computePrice({ clean: true, invoice: true, reminder: true });
-          const pendingId = crypto.randomUUID();
+          const pendingId = safeRandomUUID();
           const referenceCode = generatePaymentReferenceCode("QFD", pendingId);
           await env.SESSIONS.put(`pending-email:${pendingId}`, JSON.stringify({ senderEmail, csvText: csvAttachment.content, opts, referenceCode }),
             { expirationTtl: 3 * 24 * 60 * 60 }); // hold a few days awaiting payment + manual confirmation
@@ -2141,7 +2272,7 @@ async function tryAutoConfirmFromBankAlert(env, emailText) {
   const { amount, hadDecimal } = extracted;
   const referenceCode = extractPaymentReferenceCode(emailText);
 
-  const list = await env.SESSIONS.list({ prefix: "claim:" });
+  const list = await kvListAll(env, "claim:");
   const allClaims = [];
   for (const k of list.keys) {
     const raw = await env.SESSIONS.get(k.name);
@@ -2188,7 +2319,7 @@ async function tryAutoConfirmFromBankAlert(env, emailText) {
 // so no separate "when do they expire" bookkeeping is needed.
 async function sendMembershipRenewalReminders(env) {
   const { upiId, payeeName } = resolveUpiIdentity(env);
-  const list = await env.SESSIONS.list({ prefix: "member:" });
+  const list = await kvListAll(env, "member:");
   const nowSeconds = Date.now() / 1000;
 
   for (const k of list.keys) {
@@ -2263,7 +2394,7 @@ async function createSessionFromCsv(env, csvText, opts, memberEmail, ip, apiKeyL
   try {
     const chosenOpts = opts || { clean: true, invoice: true, reminder: true };
     const result = runFullPipeline(csvText, chosenOpts);
-    const sessionId = crypto.randomUUID();
+    const sessionId = safeRandomUUID();
     const priceBreakdown = computePriceBreakdown(chosenOpts);
     const price = priceBreakdown.total;
     const fileHash = await computeFileFingerprint(csvText);
@@ -2765,7 +2896,16 @@ async function handleAction(action, body, request, env) {
           if (session.paymentInfo.extensions >= PAYMENT_INFO_MAX_EXTENSIONS) {
             return jsonResponse({ error: "payment-window-locked" }, 429);
           }
-          session.paymentInfo.extensions += 1;
+          // Only increment the extension counter the FIRST time the QR is
+          // actually shown, not on every fetch (e.g. network retry, page
+          // refresh by the client). The `lastExtendedAt` timestamp tracks
+          // when we last extended, so spurious repeat calls don't burn
+          // through the extension budget.
+          const cooldownMs = 30_000; // 30 seconds — ignore rapid repeats
+          if (!session.paymentInfo.lastExtendedAt || Date.now() - session.paymentInfo.lastExtendedAt > cooldownMs) {
+            session.paymentInfo.extensions += 1;
+            session.paymentInfo.lastExtendedAt = Date.now();
+          }
           await env.SESSIONS.put(`session:${sessionId}`, JSON.stringify(session), { expirationTtl: PAYMENT_INFO_MAX_WINDOW_SECONDS });
 
           const referenceCode = session.paymentInfo.referenceCode;
@@ -2785,29 +2925,7 @@ async function handleAction(action, body, request, env) {
             await logError(env, "payment-window-extended-multiple-times", `Session ${sessionId} extended ${session.paymentInfo.extensions} times, first requested at ${new Date(session.paymentInfo.firstRequestedAt).toISOString()}`);
           }
 
-          // Optionally create a Razorpay order (Cards/NetBanking/Wallets) if credentials provided
-          let razorpayOrder = null;
-          try {
-            if (env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET) {
-              const rpAmount = Math.round(amount * 100); // paise
-              const resp = await fetch('https://api.razorpay.com/v1/orders', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Basic ' + btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`)
-                },
-                body: JSON.stringify({ amount: rpAmount, currency: 'INR', receipt: referenceCode, payment_capture: 1 })
-              });
-              if (resp.ok) {
-                razorpayOrder = await resp.json();
-              }
-            }
-          } catch (e) {
-            // non-fatal: leave razorpayOrder null if creation fails
-            await logError(env, 'razorpay-order-failed', e && e.stack ? e.stack : String(e));
-          }
-
-          return jsonResponse({ upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note, referenceCode, payeeVpa: upiId, payeeName, razorpayOrder, razorpayKeyId: env.RAZORPAY_KEY_ID || null });
+          return jsonResponse({ upiUri, qrImageUrl: qrImageUrlForUpi(upiUri), amount, note, referenceCode, payeeVpa: upiId, payeeName });
     }
 
     // --- submit_payment_claim (client reports the UTR after paying via QR) ---
@@ -2911,6 +3029,17 @@ async function handleAction(action, body, request, env) {
 
       const pendingRaw = await env.SESSIONS.get(`sub-payment:${email}`);
       const pendingData = pendingRaw ? JSON.parse(pendingRaw) : null;
+
+      // Duplicate UTR check — same guard the one-time payment path uses,
+      // was missing here. A reused UTR across two different subscription
+      // claims would otherwise create two pending claims for the same
+      // payment, and confirming both would grant double the access.
+      const duplicateSubClaims = await findClaimsByUtr(env, utr);
+      if (duplicateSubClaims.length) {
+        await logError(env, "duplicate-utr-sub", `UTR ${utr} already used by ${duplicateSubClaims.map((c) => `${c.kind}:${c.id}`).join(", ")}`);
+        return jsonResponse({ error: "duplicate-utr" }, 409);
+      }
+
       const hasSubscribedBefore = !!(await env.SESSIONS.get(`memberhistory:${email}`));
       const price = hasSubscribedBefore ? MONTHLY_SUB_PRICE_INR : FIRST_MONTH_PRICE_INR;
       const amount = uniqueAmountFor(price, email);
@@ -3071,7 +3200,7 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: "rate-limited" }, 429);
       }
 
-      const list = await env.SESSIONS.list({ prefix: "claim:" });
+      const list = await kvListAll(env, "claim:");
       const claims = await Promise.all(list.keys.map(async (k) => JSON.parse(await env.SESSIONS.get(k.name))));
       claims.sort((a, b) => b.claimedAt - a.claimedAt);
       return jsonResponse({ claims });
@@ -3140,7 +3269,7 @@ async function handleAction(action, body, request, env) {
 
       const { name, specialty, contact, region } = body;
       if (!name || !contact) return jsonResponse({ error: "missing-fields" }, 400);
-      const id = crypto.randomUUID();
+      const id = safeRandomUUID();
       await env.SESSIONS.put(`partner:${id}`, JSON.stringify({
         name, specialty: specialty || "", contact, region: region || "", active: true, addedAt: Date.now(),
       })); // no TTL — persists until removed
@@ -3158,7 +3287,7 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: "rate-limited" }, 429);
       }
 
-      const list = await env.SESSIONS.list({ prefix: "partner:" });
+      const list = await kvListAll(env, "partner:");
       const partners = await Promise.all(
         list.keys.map(async (k) => ({ id: k.name.replace("partner:", ""), ...JSON.parse(await env.SESSIONS.get(k.name)) }))
       );
@@ -3196,7 +3325,7 @@ async function handleAction(action, body, request, env) {
       const anyUnlocked = session.unlocked.clean || session.unlocked.invoice || session.unlocked.reminder;
       if (!anyUnlocked) return jsonResponse({ error: "not-unlocked" }, 403);
 
-      const list = await env.SESSIONS.list({ prefix: "partner:" });
+      const list = await kvListAll(env, "partner:");
       const partners = (await Promise.all(
         list.keys.map(async (k) => JSON.parse(await env.SESSIONS.get(k.name)))
       )).filter((p) => p.active);
@@ -3260,7 +3389,7 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: "rate-limited" }, 429);
       }
 
-      const list = await env.SESSIONS.list({ prefix: "apikey:" });
+      const list = await kvListAll(env, "apikey:");
       const keys = await Promise.all(
         list.keys.map(async (k) => {
           const data = JSON.parse(await env.SESSIONS.get(k.name));
@@ -3368,7 +3497,7 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: "sheet-url-must-be-a-published-csv-link" }, 400);
       }
 
-      const subId = crypto.randomUUID();
+      const subId = safeRandomUUID();
       const sub = { email, sheetUrl, opts: opts || { clean: true, invoice: true, reminder: true }, createdAt: Date.now() };
       await env.SESSIONS.put(`sub:${subId}`, JSON.stringify(sub)); // no TTL — persists until removed
       return jsonResponse({ status: "ok", subId });
@@ -3376,7 +3505,7 @@ async function handleAction(action, body, request, env) {
 
     // --- list_subscriptions (admin) ---
     if (action === "list_subscriptions") {
-      const list = await env.SESSIONS.list({ prefix: "sub:" });
+      const list = await kvListAll(env, "sub:");
       const subs = await Promise.all(
         list.keys.map(async (k) => {
           const raw = await env.SESSIONS.get(k.name);
@@ -3424,8 +3553,11 @@ async function handleAction(action, body, request, env) {
 // Wire this up in the Cloudflare dashboard: Settings -> Triggers ->
 // Cron Triggers. Nothing calls this unless you add a trigger there.
 async function runScheduledSubscriptions(env) {
-    const list = await env.SESSIONS.list({ prefix: "sub:" });
-    for (const k of list.keys) {
+    const list = await kvListAll(env, "sub:");
+    // Process at most 50 subscriptions per cron run to stay within the
+    // Workers CPU-time budget (10ms per event or up to 15 min total).
+    const batch = list.keys.slice(0, 50);
+    for (const k of batch) {
       const raw = await env.SESSIONS.get(k.name);
       if (!raw) continue;
       const sub = JSON.parse(raw);
