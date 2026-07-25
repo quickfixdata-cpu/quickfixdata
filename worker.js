@@ -2549,7 +2549,7 @@ async function handleAction(action, body, request, env) {
 
       const { files, memberEmail } = body;
       if (!Array.isArray(files) || files.length === 0) return jsonResponse({ error: "missing-files" }, 400);
-      if (files.length > 10) return jsonResponse({ error: "too-many-files" }, 400);
+      if (files.length > 5) return jsonResponse({ error: "too-many-files" }, 400);
 
       let isMember = false;
       if (memberEmail) {
