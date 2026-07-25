@@ -1551,6 +1551,12 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     runBtn.disabled = true;
     errorMsg.textContent = '';
     resultsPanel.style.display = 'none';
+    lockedPanel.style.display = 'none';
+    expiredPanel.style.display = 'none';
+    qrBox.style.display = 'none';
+    showQrBtn.style.display = 'inline-block';
+    stopTimers();
+    currentSessionId = null;
   });
 
   // Note: file parsing, cleaning, invoice/reminder generation, and payment

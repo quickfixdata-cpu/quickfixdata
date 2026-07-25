@@ -328,10 +328,20 @@ function parseDate(raw) {
     return new Date(+m[1], +m[2] - 1, +m[3]);
   }
   if ((m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/))) {
-    let day = +m[1], month = +m[2];
+    let a = +m[1], b = +m[2];
     const year = +m[3];
-    if (day > 31 || month > 12) return null;
-    if (month > 12 || (day <= 12 && month > 12)) { const t = day; day = month; month = t; }
+    // Default assumption: DD/MM/YYYY (India). But if the second number
+    // is > 12 it can't be a month, so interpret as MM/DD/YYYY instead.
+    // If both are <= 12 the date is inherently ambiguous — we keep DD/MM.
+    let day, month;
+    if (b > 12) {
+      // Second number can't be a valid month (max 12), so swap: a = month, b = day
+      day = b; month = a;
+    } else {
+      // Default DD/MM
+      day = a; month = b;
+    }
+    if (day > 31 || month > 12 || day < 1 || month < 1) return null;
     return new Date(year, month - 1, day);
   }
   return null;
@@ -2269,7 +2279,7 @@ async function tryAutoConfirmFromBankAlert(env, emailText) {
 // so no separate "when do they expire" bookkeeping is needed.
 async function sendMembershipRenewalReminders(env) {
   const { upiId, payeeName } = resolveUpiIdentity(env);
-  const list = await env.SESSIONS.list({ prefix: "member:" });
+  const list = await kvListAll(env, "member:");
   const nowSeconds = Date.now() / 1000;
 
   for (const k of list.keys) {
@@ -3150,7 +3160,7 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: "rate-limited" }, 429);
       }
 
-      const list = await env.SESSIONS.list({ prefix: "claim:" });
+      const list = await kvListAll(env, "claim:");
       const claims = await Promise.all(list.keys.map(async (k) => JSON.parse(await env.SESSIONS.get(k.name))));
       claims.sort((a, b) => b.claimedAt - a.claimedAt);
       return jsonResponse({ claims });
@@ -3237,7 +3247,7 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: "rate-limited" }, 429);
       }
 
-      const list = await env.SESSIONS.list({ prefix: "partner:" });
+      const list = await kvListAll(env, "partner:");
       const partners = await Promise.all(
         list.keys.map(async (k) => ({ id: k.name.replace("partner:", ""), ...JSON.parse(await env.SESSIONS.get(k.name)) }))
       );
@@ -3275,7 +3285,7 @@ async function handleAction(action, body, request, env) {
       const anyUnlocked = session.unlocked.clean || session.unlocked.invoice || session.unlocked.reminder;
       if (!anyUnlocked) return jsonResponse({ error: "not-unlocked" }, 403);
 
-      const list = await env.SESSIONS.list({ prefix: "partner:" });
+      const list = await kvListAll(env, "partner:");
       const partners = (await Promise.all(
         list.keys.map(async (k) => JSON.parse(await env.SESSIONS.get(k.name)))
       )).filter((p) => p.active);
@@ -3339,7 +3349,7 @@ async function handleAction(action, body, request, env) {
         return jsonResponse({ error: "rate-limited" }, 429);
       }
 
-      const list = await env.SESSIONS.list({ prefix: "apikey:" });
+      const list = await kvListAll(env, "apikey:");
       const keys = await Promise.all(
         list.keys.map(async (k) => {
           const data = JSON.parse(await env.SESSIONS.get(k.name));
@@ -3455,7 +3465,7 @@ async function handleAction(action, body, request, env) {
 
     // --- list_subscriptions (admin) ---
     if (action === "list_subscriptions") {
-      const list = await env.SESSIONS.list({ prefix: "sub:" });
+      const list = await kvListAll(env, "sub:");
       const subs = await Promise.all(
         list.keys.map(async (k) => {
           const raw = await env.SESSIONS.get(k.name);
@@ -3503,7 +3513,7 @@ async function handleAction(action, body, request, env) {
 // Wire this up in the Cloudflare dashboard: Settings -> Triggers ->
 // Cron Triggers. Nothing calls this unless you add a trigger there.
 async function runScheduledSubscriptions(env) {
-    const list = await env.SESSIONS.list({ prefix: "sub:" });
+    const list = await kvListAll(env, "sub:");
     // Process at most 50 subscriptions per cron run to stay within the
     // Workers CPU-time budget (10ms per event or up to 15 min total).
     const batch = list.keys.slice(0, 50);
