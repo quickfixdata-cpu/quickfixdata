@@ -2086,6 +2086,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     showQrBtn.style.display = 'inline-block';
     stopTimers();
     currentSessionId = null;
+    currentBatchId = null;
     // Milestone 3: clear multi-file state
     selectedFiles = [];
     if(multiFileListEl){ multiFileListEl.style.display='none'; multiFileListEl.innerHTML=''; }
@@ -2519,6 +2520,7 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   };
 
   let currentSessionId = null;
+  let currentBatchId = null;
   let currentPrice = 0;
   let countdownInterval = null;
   let pollInterval = null;
@@ -2749,6 +2751,87 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     submitForProcessing(editedCsv, photoReviewOpts, true);
   });
 
+  // --- Milestone 4: Batch processing integration ---
+  async function submitBatchForProcessing(files, opts){
+    runBtn.disabled = true;
+    runBtn.textContent = 'Processing batch…';
+    errorMsg.textContent = '';
+    expiredPanel.style.display = 'none';
+    resultsPanel.style.display = 'none';
+    setUploadProgress(`Preparing ${files.length} file(s) for batch processing…`, 'busy');
+    try{
+      const memberEmail = document.getElementById('memberEmailInput').value.trim() || undefined;
+      // Read all files as CSV (handles .xlsx via XLSX lib)
+      const batchFiles = [];
+      for(let i=0;i<files.length;i++){
+        const f = files[i];
+        setUploadProgress(`Reading file ${i+1}/${files.length}: ${f.name}…`, 'busy');
+        const csvText = await readSpreadsheetAsCsv(f);
+        batchFiles.push({ filename: f.name, csvText, opts });
+      }
+      setUploadProgress(`Uploading batch of ${batchFiles.length} file(s)…`, 'busy');
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'process_batch', files: batchFiles, memberEmail }),
+      });
+      const result = await res.json();
+      if(!res.ok) throw new Error(result.error || 'batch-processing-error');
+
+      currentBatchId = result.batchId;
+      currentPrice = result.totalPrice || 0;
+
+      // Reuse existing preview UI for batch
+      if(result.isMember){
+        lockedSummary.textContent = `Batch processed: ${result.fileCount} file(s), ${result.totalRows} row(s) — unlocked instantly with your monthly plan.`;
+        resultBlocks.innerHTML = '';
+        result.files.forEach(f=>{
+          const preview = f.previewRows ? f.previewRows.join('\n') : (f.cleanCsv ? f.cleanCsv.slice(0,500) : '');
+          if(preview) renderBlock(`${f.filename} — ${f.totalRows} rows`, preview, f.filename);
+          if(f.report) renderSafetyReport(f.report, []);
+        });
+        setUploadProgress('Batch processed — unlocked with your monthly plan.', 'ok');
+        resultsPanel.style.display = 'block';
+        resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
+      lockedSummary.textContent = `Batch processed: ${result.fileCount} file(s), ${result.totalRows} row(s). Free previews shown; pay to unlock full results.`;
+      document.getElementById('priceAmt').textContent = `₹${currentPrice}`;
+      // For batch, price breakdown is sum; reuse simple display
+      const priceEl = document.getElementById('priceBreakdown');
+      if(priceEl){
+        priceEl.innerHTML = `<div class="pb-row"><span>${result.fileCount} file(s) × selected services</span><span>₹${currentPrice}</span></div>`;
+      }
+      renderOptionLocks({ clean: false, invoice: false, reminder: false });
+
+      const previewBox = document.getElementById('freePreviewBox');
+      if(previewBox){
+        const allPreviews = result.files.map(f=>`--- ${f.filename} (${f.totalRows} rows) ---\n${(f.previewRows||[]).join('\n')}`).join('\n\n');
+        previewBox.querySelector('textarea').value = allPreviews;
+        previewBox.style.display = 'block';
+      }
+      setUploadProgress(`Batch ready: ${result.fileCount} file(s), ${result.totalRows} row(s). Free previews shown below; pay to unlock.`, 'ok');
+      lockedPanel.style.display = 'block';
+      lockedPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      startCountdown(result.expiresIn);
+      // Batch polling not needed yet; reuse session flow for single-file compatibility
+    } catch(err){
+      const friendly = describeUploadError(err.message, currentLocalFileSummary);
+      errorMsg.textContent = friendly;
+      renderUploadDiagnostics({
+        ...(currentLocalFileSummary || { filename: 'Batch', sourceType: 'Batch', sizeLabel: '—', rowCount: '—', headers: [], detected: {} }),
+        title: 'Batch needs attention',
+        message: friendly,
+        nextStep: 'Fix the files and try again, or message me directly.',
+        tone: 'err',
+      });
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = 'Process it';
+    }
+  }
+
   runBtn.addEventListener('click', async () => {
     if (!fileLoaded) return;
     chosenOpts = {
@@ -2762,7 +2845,11 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
 
     if (pendingPhoto) {
       await transcribeAndReview(chosenOpts);
+    } else if (selectedFiles && selectedFiles.length >= 2 && selectedFiles.length <= 5) {
+      // Milestone 4: 2-5 files → process_batch
+      await submitBatchForProcessing(selectedFiles, chosenOpts);
     } else {
+      // Milestone 4: exactly 1 file → preserve existing single-file flow (process)
       await submitForProcessing(rawCsvText, chosenOpts, false);
     }
   });
