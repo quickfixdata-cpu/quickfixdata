@@ -321,6 +321,66 @@ function findColumn(headers, candidates) {
   return null;
 }
 
+function getManualMappingValue(mapping, keys) {
+  if (!mapping || typeof mapping !== "object") return { present: false };
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(mapping, key)) {
+      return { present: true, value: mapping[key] };
+    }
+  }
+  return { present: false };
+}
+
+function isNoneColumnMappingValue(value) {
+  if (value == null) return true;
+  if (typeof value === "number") return value < 0;
+  const text = String(value).trim().toLowerCase();
+  return !text || text === "none" || text === "null" || text === "ignore" || text === "skip" || text === "-1";
+}
+
+function resolveManualColumnIndex(value, headers) {
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value >= 0 && value < headers.length ? value : -1;
+  }
+
+  const text = String(value ?? "").trim();
+  if (/^\d+$/.test(text)) {
+    const idx = Number(text);
+    if (idx >= 0 && idx < headers.length) return idx;
+  }
+
+  const normalized = text.toLowerCase();
+  return headers.findIndex((h) => h === normalized);
+}
+
+function resolveManualColumnMapping(mapping, headers) {
+  const fields = {
+    client: ["client", "name", "clientName", "customer", "customerName"],
+    email: ["email", "mail", "emailAddress"],
+    amount: ["amount", "amountDue", "dueAmount", "balance", "total"],
+    due: ["due", "dueDate", "date", "deadline"],
+    paid: ["paid", "paidStatus", "status"],
+  };
+  const resolved = {};
+
+  for (const [field, keys] of Object.entries(fields)) {
+    const item = getManualMappingValue(mapping, keys);
+    if (!item.present) continue;
+
+    if (isNoneColumnMappingValue(item.value)) {
+      if (field === "client" || field === "amount") return { error: true };
+      resolved[field] = -1;
+      continue;
+    }
+
+    const idx = resolveManualColumnIndex(item.value, headers);
+    if (idx < 0) return { error: true };
+    resolved[field] = idx;
+  }
+
+  return { fields: resolved, hasManual: Object.keys(resolved).length > 0, error: false };
+}
+
 // India-first date parsing. ISO (YYYY-MM-DD) is always unambiguous.
 // Slash/dash 2-part-day dates are read as DD/MM/YYYY (not US MM/DD/YYYY),
 // with a rescue swap only when the numbers make DD/MM impossible.
@@ -896,13 +956,15 @@ function buildDocxFromText(text) {
 
 function runFullPipeline(csvText, opts) {
   const { headers, dataLines, headerLineIndex } = parseCsv(csvText);
+  const manualMapping = resolveManualColumnMapping(opts && (opts.columnMapping || opts.columnMap || opts.mapping), headers);
+  if (manualMapping.error) throw new Error("invalid-column-mapping");
 
   let nameCol = findColumn(headers, [
     "client name", "client", "name", "customer", "bill", "party",
     "particulars", "debtor", "customer name", "party name", "bill to",
     "contact", "description", "vendor", "supplier",
   ]);
-  const emailCol = findColumn(headers, ["email", "e-mail", "mail"]);
+  let emailCol = findColumn(headers, ["email", "e-mail", "mail"]);
   let amountCol = findColumn(headers, [
     "amount due", "amount", "total", "price", "due amount",
     "balance", "sum", "outstanding", "receivable", "payable",
@@ -937,15 +999,28 @@ function runFullPipeline(csvText, opts) {
     // If we couldn't find any non-special column, just use the second column.
     if (!amountCol) amountCol = headers[1];
   }
-  const dateCol = findColumn(headers, ["due date", "date", "deadline"]);
-  const paidCol = findColumn(headers, ["paid?", "paid", "status"]);
+  let dateCol = findColumn(headers, ["due date", "date", "deadline"]);
+  let paidCol = findColumn(headers, ["paid?", "paid", "status"]);
 
-  if (!nameCol || !amountCol) throw new Error("missing-columns");
-  const nameIdx = headers.indexOf(nameCol);
-  const emailIdx = emailCol ? headers.indexOf(emailCol) : -1;
-  const amountIdx = headers.indexOf(amountCol);
-  const dateIdx = dateCol ? headers.indexOf(dateCol) : -1;
-  const paidIdx = paidCol ? headers.indexOf(paidCol) : -1;
+  let nameIdx = nameCol ? headers.indexOf(nameCol) : -1;
+  let emailIdx = emailCol ? headers.indexOf(emailCol) : -1;
+  let amountIdx = amountCol ? headers.indexOf(amountCol) : -1;
+  let dateIdx = dateCol ? headers.indexOf(dateCol) : -1;
+  let paidIdx = paidCol ? headers.indexOf(paidCol) : -1;
+
+  if (manualMapping.hasManual) {
+    const mapped = manualMapping.fields;
+    if (Object.prototype.hasOwnProperty.call(mapped, "client")) nameIdx = mapped.client;
+    if (Object.prototype.hasOwnProperty.call(mapped, "email")) emailIdx = mapped.email;
+    if (Object.prototype.hasOwnProperty.call(mapped, "amount")) amountIdx = mapped.amount;
+    if (Object.prototype.hasOwnProperty.call(mapped, "due")) dateIdx = mapped.due;
+    if (Object.prototype.hasOwnProperty.call(mapped, "paid")) paidIdx = mapped.paid;
+
+    const selected = [nameIdx, emailIdx, amountIdx, dateIdx, paidIdx].filter((idx) => idx >= 0);
+    if (new Set(selected).size !== selected.length) throw new Error("invalid-column-mapping");
+  }
+
+  if (nameIdx < 0 || amountIdx < 0) throw new Error("missing-columns");
 
   const seen = new Set();
   const rows = [];
@@ -1002,6 +1077,14 @@ function runFullPipeline(csvText, opts) {
     skippedDuplicate,
     formulaInjectionNeutralized,
     anomalyCheckPerformed: false,
+    columnMapping: {
+      mode: manualMapping.hasManual ? "manual" : "auto",
+      client: headers[nameIdx] || null,
+      email: emailIdx >= 0 ? headers[emailIdx] : null,
+      amount: headers[amountIdx] || null,
+      dueDate: dateIdx >= 0 ? headers[dateIdx] : null,
+      paid: paidIdx >= 0 ? headers[paidIdx] : null,
+    },
   };
 
   if (opts.clean) {
@@ -2436,7 +2519,9 @@ async function createSessionFromCsv(env, csvText, opts, memberEmail, ip, apiKeyL
       },
     };
   } catch (err) {
-    const message = err.message === "missing-columns" ? "missing-columns" : "processing-error";
+    const message = err.message === "missing-columns" ? "missing-columns"
+      : err.message === "invalid-column-mapping" ? "invalid-column-mapping"
+      : "processing-error";
     return { error: message, status: 400 };
   }
 }
