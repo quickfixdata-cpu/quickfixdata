@@ -301,6 +301,14 @@
     font-weight:600;
   }
   input[type=file]{display:none;}
+  .multi-file-list{display:grid; gap:10px;}
+  .multi-file-card{border:1px solid var(--line); border-radius:8px; background:#fff; padding:12px 14px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px;}
+  .multi-file-card-info{flex:1; min-width:0;}
+  .multi-file-card-name{font-family:'IBM Plex Mono', monospace; font-weight:600; font-size:0.88rem; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .multi-file-card-meta{font-size:0.8rem; color:#6b7078; margin-top:4px; display:flex; gap:12px; flex-wrap:wrap;}
+  .multi-file-card-meta span{font-family:'IBM Plex Mono', monospace; font-size:0.75rem; background:var(--paper-dim); border-radius:4px; padding:2px 6px;}
+  .multi-file-card-remove{border:1px solid var(--line); background:#fff; border-radius:6px; padding:6px 10px; font-size:0.78rem; cursor:pointer; color:#b5493a; flex:0 0 auto;}
+  .multi-file-card-remove:hover{background:#FFF5F2;}
   .tool-options{
     display:grid;
     grid-template-columns:repeat(3, 1fr);
@@ -1086,12 +1094,14 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
   </div>
 
   <div class="tool-panel">
-    <span class="step-label">Step 1 — Upload a CSV or Excel file</span>
+    <span class="step-label">Step 1 — Upload CSV or Excel files (up to 5)</span>
     <div class="dropzone" id="dropzone">
-      <p>Drop a .csv or .xlsx here, or click to browse.<br>Needs at least a name/client column and an amount column — email, date, and paid-status columns are optional.</p>
+      <p>Drop up to 5 .csv or .xlsx files here, or click to browse.<br>Each file needs at least a name/client column and an amount column — email, date, and paid-status columns are optional.</p>
       <div class="filename" id="filename"></div>
-      <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+      <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" multiple>
     </div>
+    <div class="multi-file-list" id="multiFileList" style="display:none; margin-top:16px;"></div>
+    <div class="tool-error" id="multiFileLimitMsg" style="display:none; margin-top:10px;"></div>
     <p class="tool-hint">No file handy? <a href="#" id="sampleLink">Use a sample messy file instead</a>.</p>
 
     <p class="tool-hint" style="margin-top:10px;">Working from a handwritten notebook instead? <a href="#" id="photoModeLink">📷 Upload a photo of the page</a></p>
@@ -1497,6 +1507,101 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   const mappingResetBtn = document.getElementById('resetMappingBtn');
   const mappingSummary = document.getElementById('mappingSummary');
   const mappingSelects = Array.from(document.querySelectorAll('[data-map-field]'));
+  // --- Multi-File Upload UI (Milestone 3) ---
+  const multiFileListEl = document.getElementById('multiFileList');
+  const multiFileLimitMsgEl = document.getElementById('multiFileLimitMsg');
+  const MAX_BATCH_FILES = 5;
+  let selectedFiles = [];
+
+  function formatFileSize(bytes){
+    if(bytes < 1024) return bytes + ' B';
+    if(bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/(1024*1024)).toFixed(2) + ' MB';
+  }
+  function detectFileType(file){
+    const name=(file.name||'').toLowerCase();
+    if(name.endsWith('.csv')) return 'CSV';
+    if(name.endsWith('.xlsx')) return 'Excel (.xlsx)';
+    if(name.endsWith('.xls')) return 'Excel (.xls)';
+    if((file.type||'').includes('csv')) return 'CSV';
+    if((file.type||'').includes('excel')||(file.type||'').includes('spreadsheet')) return 'Excel';
+    return 'Unknown';
+  }
+  function showMultiFileLimitMessage(msg){
+    if(!multiFileLimitMsgEl) return;
+    if(!msg){ multiFileLimitMsgEl.style.display='none'; multiFileLimitMsgEl.textContent=''; return; }
+    multiFileLimitMsgEl.textContent=msg;
+    multiFileLimitMsgEl.style.display='block';
+  }
+  function renderMultiFileCards(){
+    if(!multiFileListEl) return;
+    if(selectedFiles.length===0){ multiFileListEl.style.display='none'; multiFileListEl.innerHTML=''; return; }
+    multiFileListEl.style.display='grid';
+    multiFileListEl.innerHTML = selectedFiles.map((file, idx)=>{
+      const safeName=file.name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return `<div class="multi-file-card" data-file-index="${idx}">
+        <div class="multi-file-card-info">
+          <div class="multi-file-card-name" title="${safeName}">${safeName}</div>
+          <div class="multi-file-card-meta">
+            <span>${formatFileSize(file.size)}</span>
+            <span>${detectFileType(file)}</span>
+          </div>
+        </div>
+        <button type="button" class="multi-file-card-remove" data-remove-index="${idx}" aria-label="Remove ${safeName}">Remove</button>
+      </div>`;
+    }).join('');
+    multiFileListEl.querySelectorAll('[data-remove-index]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        const i=parseInt(e.currentTarget.getAttribute('data-remove-index'),10);
+        removeSelectedFile(i);
+      });
+    });
+  }
+  function removeSelectedFile(index){
+    selectedFiles.splice(index,1);
+    showMultiFileLimitMessage('');
+    renderMultiFileCards();
+    updateFileLoadedState();
+  }
+  function updateFileLoadedState(){
+    if(selectedFiles.length>0){
+      fileLoaded=true;
+      runBtn.disabled=false;
+      // Keep backward compat: use first file for existing single-file preview logic if needed
+      // For now, show first file name in legacy element for minimal disruption
+      if(filenameEl) filenameEl.textContent = selectedFiles.length===1 ? selectedFiles[0].name : `${selectedFiles.length} files selected`;
+    } else {
+      fileLoaded=false;
+      runBtn.disabled=true;
+      if(filenameEl) filenameEl.textContent='';
+      if(multiFileListEl) { multiFileListEl.style.display='none'; multiFileListEl.innerHTML=''; }
+    }
+  }
+  function addFiles(newFiles){
+    const incoming=Array.from(newFiles||[]);
+    if(incoming.length===0) return;
+    if(selectedFiles.length>=MAX_BATCH_FILES){
+      showMultiFileLimitMessage(`You can select up to ${MAX_BATCH_FILES} files. You already have ${selectedFiles.length} file(s). Remove one to add more.`);
+      return;
+    }
+    const remaining=MAX_BATCH_FILES - selectedFiles.length;
+    if(incoming.length>remaining){
+      showMultiFileLimitMessage(`You can select up to ${MAX_BATCH_FILES} files. You tried to add ${incoming.length} file(s), but only ${remaining} more can be added. Extra files were not added.`);
+      // Only add up to remaining
+      const allowed=incoming.slice(0, remaining);
+      selectedFiles.push(...allowed);
+    } else {
+      showMultiFileLimitMessage('');
+      selectedFiles.push(...incoming);
+    }
+    renderMultiFileCards();
+    updateFileLoadedState();
+    // Trigger preview for first file only to keep existing diagnostics working (not wiring batch yet)
+    if(selectedFiles.length>0){
+      // Load first file for existing single-file diagnostics (backward compat)
+      loadFile(selectedFiles[0]);
+    }
+  }
 
   let rawCsvText = null;
   let fileLoaded = false;
@@ -1781,16 +1886,27 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   dropzone.addEventListener('drop', (e) => {
     e.preventDefault();
     dropzone.classList.remove('drag');
-    if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length) {
+      // Milestone 3: multi-file support, up to 5 files, drag & drop
+      addFiles(e.dataTransfer.files);
+    }
   });
   fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length) loadFile(e.target.files[0]);
+    if (e.target.files.length) {
+      // Milestone 3: multi-file support, up to 5 files, file picker
+      addFiles(e.target.files);
+      // Reset input value to allow re-selecting same files after removal
+      e.target.value = '';
+    }
   });
   sampleLink.addEventListener('click', (e) => {
     e.preventDefault();
     rawCsvText = SAMPLE_CSV;
     pendingPhoto = null;
     fileLoaded = true;
+    selectedFiles = [];
+    if(multiFileListEl){ multiFileListEl.style.display='none'; multiFileListEl.innerHTML=''; }
+    showMultiFileLimitMessage('');
     currentLocalFileSummary = summarizeLocalFile(null, SAMPLE_CSV, 'Sample CSV');
     filenameEl.textContent = 'sample_messy_orders.csv (demo data loaded)';
     runBtn.disabled = false;
@@ -1970,6 +2086,10 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     showQrBtn.style.display = 'inline-block';
     stopTimers();
     currentSessionId = null;
+    // Milestone 3: clear multi-file state
+    selectedFiles = [];
+    if(multiFileListEl){ multiFileListEl.style.display='none'; multiFileListEl.innerHTML=''; }
+    showMultiFileLimitMessage('');
   });
 
   // Note: file parsing, cleaning, invoice/reminder generation, and payment
