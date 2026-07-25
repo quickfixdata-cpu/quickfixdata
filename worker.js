@@ -2589,6 +2589,7 @@ async function handleAction(action, body, request, env) {
         const raw = await env.SESSIONS.get(`session:${sessionId}`);
         if (!raw) return jsonResponse({ error: "session-not-found" }, 404);
         const session = JSON.parse(raw);
+        if (!session.unlocked || !session.unlocked.clean) return jsonResponse({ error: "not-unlocked" }, 403);
         csv = session.result && session.result.cleanCsv ? session.result.cleanCsv : null;
       }
       if (!csv) return jsonResponse({ error: "missing-csv" }, 400);
@@ -2604,6 +2605,7 @@ async function handleAction(action, body, request, env) {
       const raw = await env.SESSIONS.get(`session:${sessionId}`);
       if (!raw) return jsonResponse({ error: "session-not-found-or-expired" }, 404);
       const session = JSON.parse(raw);
+      if (!session.unlocked || !session.unlocked.invoice) return jsonResponse({ error: "not-unlocked" }, 403);
       if (!session.result || !session.result.invoiceRecords || !session.result.invoiceRecords.length) return jsonResponse({ error: "no-invoices" }, 400);
       const rows = [['Client','Email','Amount','Due','InvoiceNumber']].concat(session.result.invoiceRecords.map(r => [r.client||'', r.email||'', String(r.amount||''), r.due ? (new Date(r.due)).toISOString().slice(0,10) : '', r.invoiceNumber || '']));
       if (!format || format === 'csv') {
