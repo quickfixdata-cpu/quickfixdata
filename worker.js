@@ -269,12 +269,39 @@ function parseCsvLine(line) {
 // each line directly into its final form in a single pass, so only ONE
 // array of row objects ever exists in memory at a time.
 function parseCsv(text) {
+  // Avoid text.trim() on large strings (creates a full copy in memory).
+  // Instead, find the first non-whitespace character index and the last.
+  let start = 0, end = text.length;
+  while (start < end && (text[start] === ' ' || text[start] === '\t' || text[start] === '\n' || text[start] === '\r')) start++;
+  while (end > start && (text[end - 1] === ' ' || text[end - 1] === '\t' || text[end - 1] === '\n' || text[end - 1] === '\r')) end--;
+  const trimmed = start > 0 || end < text.length ? text.slice(start, end) : text;
+
   const lines = [];
-  for (const raw of text.trim().split(/\r?\n/)) {
+  for (const raw of trimmed.split(/\r?\n/)) {
     if (raw.trim().length > 0) lines.push(raw);
   }
-  const headers = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
-  return { headers, dataLines: lines, headerLineIncluded: true };
+
+  // Scan for the actual header line: some XLSX-to-CSV conversions produce
+  // a title row before the column headers (e.g. "Quarterly Report" on line
+  // 1, then the real headers on line 2). Iterate up to 10 lines looking
+  // for one that contains name-like AND amount-like column labels — if
+  // found, that becomes the header; otherwise fall back to lines[0].
+  let headerLine = lines[0];
+  const CANDIDATE_NAME = ["client", "name", "customer", "bill", "party"];
+  const CANDIDATE_AMOUNT = ["amount", "total", "price", "due", "balance", "sum"];
+  const scanLimit = Math.min(lines.length, 10);
+  for (let i = 0; i < scanLimit; i++) {
+    const cells = parseCsvLine(lines[i]).map((h) => h.trim().toLowerCase()).filter((h) => h.length > 0);
+    const hasName = cells.some((c) => CANDIDATE_NAME.some((kw) => c.includes(kw)));
+    const hasAmount = cells.some((c) => CANDIDATE_AMOUNT.some((kw) => c.includes(kw)));
+    if (hasName && hasAmount) {
+      headerLine = lines[i];
+      break;
+    }
+  }
+
+  const headers = parseCsvLine(headerLine).map((h) => h.trim().toLowerCase());
+  return { headers, dataLines: lines, headerLineIncluded: true, headerLineIndex: lines.indexOf(headerLine) };
 }
 
 /* ---------------- Column matching, dates, formatting ---------------- */
@@ -855,7 +882,7 @@ function buildDocxFromText(text) {
 /* ---------------- Core pipeline ---------------- */
 
 function runFullPipeline(csvText, opts) {
-  const { headers, dataLines } = parseCsv(csvText);
+  const { headers, dataLines, headerLineIndex } = parseCsv(csvText);
 
   const nameCol = findColumn(headers, ["client name", "client", "name", "customer"]);
   const emailCol = findColumn(headers, ["email", "e-mail", "mail"]);
@@ -881,7 +908,10 @@ function runFullPipeline(csvText, opts) {
   // object directly — no intermediate generic {header: value} object per
   // line, so only one array of row objects exists in memory at a time
   // (see the comment on parseCsv for why this matters at larger file sizes).
-  for (let li = 1; li < dataLines.length; li++) {
+  // Skip all lines up to and including the header row (headerLineIndex
+  // accounts for title rows from XLSX conversions that precede the real
+  // column headers — e.g. "Quarterly Report" on line 0, headers on line 1).
+  for (let li = headerLineIndex + 1; li < dataLines.length; li++) {
     const cells = parseCsvLine(dataLines[li]);
     // A row with a different number of fields than the header almost
     // always means broken/malicious quoting (e.g. an unescaped comma
@@ -915,7 +945,7 @@ function runFullPipeline(csvText, opts) {
   const totalRows = rows.length;
   const out = { totalRows, cleanCsv: "", invoices: [], invoiceEmails: [], reminders: [], reminderEmails: [] };
   out.report = {
-    totalInputRows: dataLines.length - 1, // dataLines[0] is the header row; malformed lines are already counted here since they're still data lines
+    totalInputRows: dataLines.length - (headerLineIndex + 1), // data lines after the actual header row (accounts for title rows from XLSX conversions)
     processedRows: totalRows,
     skippedMalformed: malformedCount,
     skippedMissingData,
