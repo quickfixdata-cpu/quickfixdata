@@ -1625,18 +1625,37 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
     return suggestions;
   }
 
-  function updateMappingSummary() {
-    if (!mappingSummary) return;
-    const selected = mappingSelects
+  function selectedMappingEntries() {
+    return mappingSelects
       .filter((select) => select.value !== 'auto')
       .map((select) => {
         const field = select.getAttribute('data-map-field');
-        const label = MAPPING_FIELD_CONFIG[field]?.label || field;
         const option = select.options[select.selectedIndex];
-        return `${label} → ${option ? option.text.replace(/^\d+\.\s*/, '') : 'Auto-detect'}`;
-      });
+        return {
+          field,
+          index: Number(select.value),
+          label: MAPPING_FIELD_CONFIG[field]?.label || field,
+          header: option ? option.text.replace(/^\d+\.\s*/, '') : 'Auto-detect',
+        };
+      })
+      .filter((entry) => entry.field && Number.isInteger(entry.index) && entry.index >= 0);
+  }
+
+  function selectedColumnMap() {
+    const entries = selectedMappingEntries();
+    if (!entries.length) return null;
+    return entries.reduce((map, entry) => {
+      map[entry.field] = entry.index;
+      return map;
+    }, {});
+  }
+
+  function updateMappingSummary() {
+    if (!mappingSummary) return;
+    const selected = selectedMappingEntries()
+      .map((entry) => `${entry.label} → ${entry.header}`);
     mappingSummary.textContent = selected.length
-      ? `Current draft mapping: ${selected.join('; ')}. This panel is not connected to processing yet.`
+      ? `Current mapping: ${selected.join('; ')}.`
       : 'All fields are set to Auto-detect.';
   }
 
@@ -2618,6 +2637,8 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       reminder: document.querySelector('[data-opt=reminder] input').checked,
       gstPercent: gstToggle.checked ? parseFloat(gstPercentInput.value) || 0 : 0,
     };
+    const columnMap = selectedColumnMap();
+    if (columnMap) chosenOpts.columnMap = columnMap;
 
     if (pendingPhoto) {
       await transcribeAndReview(chosenOpts);
