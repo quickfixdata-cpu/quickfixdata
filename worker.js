@@ -287,8 +287,11 @@ function parseCsv(text) {
   // for one that contains name-like AND amount-like column labels — if
   // found, that becomes the header; otherwise fall back to lines[0].
   let headerLine = lines[0];
-  const CANDIDATE_NAME = ["client", "name", "customer", "bill", "party"];
-  const CANDIDATE_AMOUNT = ["amount", "total", "price", "due", "balance", "sum"];
+  // These must stay in sync with the findColumn candidates used in
+  // runFullPipeline below — the smart detection finds which line has the
+  // header row, but findColumn actually picks which columns are name/amount.
+  const CANDIDATE_NAME = ["client", "name", "customer", "bill", "party", "particulars", "debtor", "contact", "description", "vendor", "supplier"];
+  const CANDIDATE_AMOUNT = ["amount", "total", "price", "due", "balance", "sum", "outstanding", "receivable", "payable", "net", "gross", "invoice"];
   const scanLimit = Math.min(lines.length, 10);
   for (let i = 0; i < scanLimit; i++) {
     const cells = parseCsvLine(lines[i]).map((h) => h.trim().toLowerCase()).filter((h) => h.length > 0);
@@ -894,9 +897,46 @@ function buildDocxFromText(text) {
 function runFullPipeline(csvText, opts) {
   const { headers, dataLines, headerLineIndex } = parseCsv(csvText);
 
-  const nameCol = findColumn(headers, ["client name", "client", "name", "customer"]);
+  let nameCol = findColumn(headers, [
+    "client name", "client", "name", "customer", "bill", "party",
+    "particulars", "debtor", "customer name", "party name", "bill to",
+    "contact", "description", "vendor", "supplier",
+  ]);
   const emailCol = findColumn(headers, ["email", "e-mail", "mail"]);
-  const amountCol = findColumn(headers, ["amount due", "amount", "total", "price", "due amount"]);
+  let amountCol = findColumn(headers, [
+    "amount due", "amount", "total", "price", "due amount",
+    "balance", "sum", "outstanding", "receivable", "payable",
+    "net amount", "gross amount", "invoice amount",
+  ]);
+
+  // Fallback 1: if we have an amount column but no name column, use the
+  // first non-amount, non-email, non-date column as a best-effort name
+  // column. Covers exotic labels like "entity", "contact person", etc.
+  const SPECIAL_COLS = new Set(["email", "e-mail", "mail", "date", "due date", "deadline", "paid?", "paid", "status", "flag", "paid status"]);
+  if (!nameCol && amountCol) {
+    nameCol = headers.find((h) => h !== amountCol && h !== emailCol && !SPECIAL_COLS.has(h));
+  }
+  // Fallback 2: if we have a name column but no amount column, try using
+  // the last-ish column that looks like a number field.
+  if (nameCol && !amountCol) {
+    amountCol = headers.find((h) => h !== nameCol && h !== emailCol && !SPECIAL_COLS.has(h));
+  }
+  // Fallback 3: last resort — if neither name nor amount was found at all,
+  // assume column 0 is the name and column (last) is the amount. This
+  // handles truly exotic headers like "entity", "email", "advance", "date"
+  // where no label matches any known pattern.
+  if (!nameCol && !amountCol && headers.length >= 2) {
+    nameCol = headers[0];
+    // Skip the first column and look for the last non-special column.
+    for (let i = headers.length - 1; i >= 1; i--) {
+      if (!SPECIAL_COLS.has(headers[i]) && headers[i] !== nameCol) {
+        amountCol = headers[i];
+        break;
+      }
+    }
+    // If we couldn't find any non-special column, just use the second column.
+    if (!amountCol) amountCol = headers[1];
+  }
   const dateCol = findColumn(headers, ["due date", "date", "deadline"]);
   const paidCol = findColumn(headers, ["paid?", "paid", "status"]);
 
