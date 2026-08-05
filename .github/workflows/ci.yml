@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan repo for obvious secrets
+        run: |
+          set -euo pipefail
+          echo "Scanning for obvious secrets..."
+          # Patterns: private keys, tokens, API_KEY, SECRET
+          if git grep -I -n -e 'BEGIN PRIVATE KEY' -e 'PRIVATE KEY' -e 'API_KEY' -e 'RESEND_API_KEY' -e 'ANTHROPIC_API_KEY' -e 'ADMIN_KEY' -e 'SECRET' -- ':!vendor' -- ':!package/dist' ; then
+            echo "Potential secrets found in repository; please review and remove before pushing."
+            git grep -I -n -e 'BEGIN PRIVATE KEY' -e 'PRIVATE KEY' -e 'API_KEY' -e 'RESEND_API_KEY' -e 'ANTHROPIC_API_KEY' -e 'ADMIN_KEY' -e 'SECRET' -- ':!vendor' -- ':!package/dist'
+            exit 1
+          else
+            echo "No obvious secrets found (quick-scan)."
+          fi
+
+  package-lint:
+    name: Package lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - name: Install package dev deps (package/)
+        working-directory: ./package
+        run: npm ci
+      - name: Run lint
+        working-directory: ./package
+        run: npm run lint
+      - name: Run type-check
+        working-directory: ./package
+        run: npm run type-check
