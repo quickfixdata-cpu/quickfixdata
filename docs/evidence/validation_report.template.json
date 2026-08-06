@@ -1,0 +1,9 @@
+{
+  "id":"validation-report-<YYYYMMDD>-<unique>",
+  "producer_engine":"global-validation",
+  "schema_id":"validation_report",
+  "execution_id":"<execution_id>",
+  "violations": [],
+  "missing_evidence": [],
+  "created_at":"<RFC3339>"
+}

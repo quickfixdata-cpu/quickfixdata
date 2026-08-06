@@ -1,0 +1,14 @@
+{
+  "registry_id": "policy_registry",
+  "version": "1.0",
+  "schema_ref": "../schemas/policy.schema.json",
+  "purpose": "Repository and runtime policy rules for enforcement by Policy Enforcement Engine.",
+  "owner": "Policy Enforcement Owner",
+  "metadata": { "created_at": "2026-08-06T10:42:43.189Z" },
+  "policies": [
+    {"id":"approval-evidence-policy","description":"Require Approval Evidence for authoritative freezes and registry promotions","owner_role":"Governance Board Representative","rules":[{"type":"require_signed_approval","scopes":["docs/registries/*","docs/schemas/*","ARCHITECTURE.md","ADR-0001-RECONSTRUCTED-ARCHITECTURE.md"]}]},
+    {"id":"determinism-policy","description":"Require determinism_proof for representative runs before freeze","owner_role":"Determinism Owner","rules":[{"type":"require_determinism_proof","threshold":"identical"}]},
+    {"id":"evidence-retention-policy","description":"Define retention for evidence artifacts","owner_role":"Audit Owner","rules":[{"type":"retention","days":3650}]},
+    {"id":"freeze-policy","description":"Define freeze gating rules","owner_role":"Standards Committee Chair","rules":[{"type":"require_signers","roles":["Chief EOS Architect","Standards Committee Chair","Governance Board Representative"]}]}
+  ]
+}

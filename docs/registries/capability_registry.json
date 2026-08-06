@@ -1,0 +1,30 @@
+{
+  "registry_id": "capability_registry",
+  "version": "1.0",
+  "schema_ref": "../schemas/capability_registry.schema.json",
+  "purpose": "Seeded capability registry used by Execution Planner to map objectives to engine capabilities.",
+  "owner": "Capability Registry Owner",
+  "metadata": { "created_at": "2026-08-06T10:42:43.189Z" },
+  "capabilities": [
+    {"id":"planning","description":"Map business objectives to engine workflow","providers":["execution-planner"]},
+    {"id":"dependency-resolution","description":"Resolve engine and capability dependencies","providers":["dependency-resolution"]},
+    {"id":"scheduling","description":"Deterministic scheduling and allocation","providers":["engine-scheduler"]},
+    {"id":"context-management","description":"Produce immutable execution contexts","providers":["context-management"]},
+    {"id":"state-management","description":"Track node states and checkpoints","providers":["state-management"]},
+    {"id":"decision-making","description":"Deterministic decision scoring and records","providers":["decision-engine"]},
+    {"id":"failure-recovery","description":"Recovery planning and compensation","providers":["failure-recovery"]},
+    {"id":"evidence-aggregation","description":"Collect and link evidence","providers":["evidence-aggregation"]},
+    {"id":"validation","description":"Global validation of execution and evidence","providers":["global-validation"]},
+    {"id":"optimization","description":"Runtime optimization and cache reuse","providers":["runtime-optimization"]},
+    {"id":"human-interaction","description":"Approval requests and signed_approvals","providers":["human-interaction"]},
+    {"id":"audit","description":"Audit bundle production","providers":["audit-engine"]},
+    {"id":"policy-enforcement","description":"Policy evaluation","providers":["policy-enforcement"]},
+    {"id":"agent-coordination","description":"Assign agents and synchronization","providers":["multi-agent-coordination"]},
+    {"id":"contract-validation","description":"Runtime contract conformance","providers":["runtime-contracts"]},
+    {"id":"metrics","description":"Collect runtime metrics","providers":["runtime-metrics"]},
+    {"id":"determinism-proof","description":"Replay and determinism verification","providers":["global-determinism"]},
+    {"id":"runtime-apis","description":"External API endpoints for orchestrator","providers":["runtime-apis"]},
+    {"id":"lifecycle-management","description":"Lifecycle manifest enforcement","providers":["eos-lifecycle"]},
+    {"id":"control-plane","description":"Master control plane registry and state","providers":["master-control-plane"]}
+  ]
+}

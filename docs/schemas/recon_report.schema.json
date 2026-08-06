@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/recon_report.schema.json",
+  "title": "recon_report",
+  "description": "Repository reconstruction report.",
+  "type": "object",
+  "required": ["id","commit_sha","created_at","summary"],
+  "properties": {
+    "id": {"type":"string"},
+    "commit_sha": {"type":"string"},
+    "created_at": {"type":"string","format":"date-time"},
+    "summary": {"type":"string"},
+    "details": {"type":"object"}
+  },
+  "additionalProperties": false
+}

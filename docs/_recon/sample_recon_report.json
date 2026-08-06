@@ -1,0 +1,9 @@
+{
+  "id":"recon-report-sample",
+  "producer_engine":"recon",
+  "schema_id":"recon_report",
+  "commit_sha":"<sample_commit>",
+  "created_at":"2026-08-06T11:04:41.198Z",
+  "summary":"Sample recon report placeholder",
+  "details":{}
+}

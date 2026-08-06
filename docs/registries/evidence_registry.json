@@ -1,0 +1,12 @@
+{
+  "registry_id": "evidence_registry",
+  "version": "1.0",
+  "schema_ref": "../schemas/evidence_node.schema.json",
+  "purpose": "Index of evidence artifacts and storage pointers for EOS v1.0.",
+  "owner": "Evidence Aggregation Owner",
+  "metadata": { "created_at": "2026-08-06T10:42:43.189Z" },
+  "evidence_index": [
+    {"id":"recon-report-latest","producer_engine":"recon","schema_id":"recon_report","checksum":"","storage_pointer":"docs/_recon/recon-report-latest.json","description":"Latest repository reconstruction report (seed)"},
+    {"id":"determinism-proof-sample","producer_engine":"global-determinism","schema_id":"determinism_proof","checksum":"","storage_pointer":"docs/_provenance/determinism-proof-sample.json","description":"Representative deterministic replay proof"}
+  ]
+}

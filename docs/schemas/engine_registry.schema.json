@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/engine_registry.schema.json",
+  "title": "engine_registry",
+  "description": "Registry of engines and runtime contract pointers.",
+  "type": "object",
+  "required": ["engines"],
+  "properties": {
+    "engines": {"type":"array","items":{"type":"object","required":["id","version","runtime_contract_ref"],"properties":{"id":{"type":"string"},"version":{"type":"string"},"runtime_contract_ref":{"type":"string"}}}}
+  },
+  "additionalProperties": false
+}

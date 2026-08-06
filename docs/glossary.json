@@ -1,0 +1,30 @@
+{
+  "glossary_id": "eos_glossary",
+  "version": "1.0",
+  "generated_from": "EOS v1.0 Specification",
+  "generated_at": "2026-08-06T11:04:41.198Z",
+  "terms": {
+    "canonical_id": "Stable lowercase dash-separated identifier for engines, schemas, and artifacts.",
+    "run_seed": "SHA256(commit_sha + recon_id + execution_nonce) - deterministic seed for executions.",
+    "recon_id": "Canonical reconstruction identifier for provenance runs.",
+    "config_version": "Immutable configuration artifact (hash + semantic version) used across an execution.",
+    "Approval Evidence": "Signed artifact proving human approval. Required to mark candidate artifacts authoritative.",
+    "execution_manifest": "Canonical representation of the planned execution; includes execution_graph and schedule.",
+    "execution_graph": "Directed acyclic graph (DAG) of engine invocation nodes embedded in execution_manifest.",
+    "evidence_graph": "Content-addressed graph of evidence nodes produced by Evidence Aggregation Engine.",
+    "decision_record": "Signed artifact describing a deterministic decision with cause, action, and evidence references.",
+    "context_snapshot": "Immutable snapshot of execution inputs and overlays provided to engines.",
+    "audit_bundle": "Content-addressed packaged audit archive produced by Audit Engine.",
+    "policy_registry": "Canonical set of policy rules enforced by Policy Enforcement Engine.",
+    "capability_registry": "Canonical list of capability identifiers and metadata used by the Execution Planner.",
+    "engine_registry": "Canonical list of engine runtime contracts and metadata.",
+    "determinism_proof": "Proof that a run is deterministic: replay checksums and results.",
+    "evidence_produced": "Artifacts produced by an engine during execution, recorded in evidence_graph.",
+    "tie-breaker": "Lexicographic ordering on canonical_id used to deterministically break score ties.",
+    "immutable": "An artifact or snapshot that must not be changed after creation; any change requires new artifact with provenance.",
+    "seeded": "Lifecycle status indicating an artifact is a seeded (candidate) entry pending Approval Evidence.",
+    "signed_approval": "A signed decision_record type artifact produced by Human Interaction Engine to record approvals.",
+    "provenance": "Metadata containing { run_seed, recon_id, commit_sha, config_version } used to trace artifact origin.",
+    "evidence_manifest": "Catalog of evidence templates, directories, and validation rules for EOS v1.0."  
+  }
+}

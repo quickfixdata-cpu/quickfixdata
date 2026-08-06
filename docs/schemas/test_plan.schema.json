@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/test_plan.schema.json",
+  "title": "test_plan",
+  "description": "QA test plan format.",
+  "type": "object",
+  "required": ["id","name","created_at","test_cases"],
+  "properties": {
+    "id": {"type":"string"},
+    "name": {"type":"string"},
+    "created_at": {"type":"string","format":"date-time"},
+    "test_cases": {"type":"array","items":{"type":"object"}}
+  },
+  "additionalProperties": false
+}

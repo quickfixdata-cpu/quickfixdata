@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/decision_record.schema.json",
+  "title": "decision_record",
+  "description": "Signed deterministic decision artifact.",
+  "type": "object",
+  "required": ["decision_id","cause","action","timestamp","provenance"],
+  "properties": {
+    "decision_id": {"type":"string"},
+    "cause": {"type":"string"},
+    "action": {"type":"string"},
+    "required_approvals": {"type":"array","items":{"type":"string"}},
+    "evidence_refs": {"type":"array","items":{"type":"string"}},
+    "timestamp": {"type":"string","format":"date-time"},
+    "provenance": {"type":"object"},
+    "signature": {"type":"string"}
+  },
+  "additionalProperties": false
+}

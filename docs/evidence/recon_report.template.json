@@ -1,0 +1,9 @@
+{
+  "id": "recon-report-<YYYYMMDD>-<unique>",
+  "producer_engine": "recon",
+  "schema_id": "recon_report",
+  "commit_sha": "<commit_sha>",
+  "created_at": "<RFC3339>",
+  "summary": "<one line summary>",
+  "details": {}
+}

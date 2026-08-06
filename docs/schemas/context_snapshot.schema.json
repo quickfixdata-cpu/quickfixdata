@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/context_snapshot.schema.json",
+  "title": "context_snapshot",
+  "description": "Immutable snapshot of execution inputs and overlays.",
+  "type": "object",
+  "required": ["id","inputs_checksum","created_at"],
+  "properties": {
+    "id": {"type":"string"},
+    "inputs_checksum": {"type":"string"},
+    "created_at": {"type":"string","format":"date-time"},
+    "overlays": {"type":"object"},
+    "provenance": {"type":"object"}
+  },
+  "additionalProperties": false
+}

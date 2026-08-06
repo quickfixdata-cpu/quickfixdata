@@ -1,0 +1,10 @@
+{
+  "id": "signed-approval-<YYYYMMDD>-<unique>",
+  "producer_engine": "human-interaction",
+  "schema_id": "decision_record",
+  "decision_id": "<decision_id>",
+  "signer_role": "<role>",
+  "signed_timestamp": "<RFC3339>",
+  "approval_scope": "<artifact-or-manifest>",
+  "evidence_references": ["<evidence_id>"]
+}

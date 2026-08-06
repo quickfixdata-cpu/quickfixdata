@@ -1,0 +1,24 @@
+{
+  "evidence_manifest_id": "evidence_manifest",
+  "version": "1.0",
+  "generated_from": "EOS v1.0 Specification",
+  "generated_at": "2026-08-06T11:04:41.198Z",
+  "directories": {
+    "provenance_dir": "docs/_provenance/",
+    "recon_dir": "docs/_recon/",
+    "reports_dir": "docs/_reports/",
+    "evidence_dir": "docs/evidence/"
+  },
+  "templates": [
+    {"id":"signed_approval.template.json","schema_ref":"../schemas/decision_record.schema.json","description":"Template for signed approval artifacts (signed_approval)"},
+    {"id":"recon_report.template.json","schema_ref":"../schemas/recon_report.schema.json","description":"Repository reconstruction report template"},
+    {"id":"determinism_proof.template.json","schema_ref":"../schemas/determinism_proof.schema.json","description":"Determinism proof template"},
+    {"id":"validation_report.template.json","schema_ref":"../schemas/validation_report.schema.json","description":"Validation report template"},
+    {"id":"audit_bundle.template.json","schema_ref":"../schemas/audit_bundle.schema.json","description":"Audit bundle template"}
+  ],
+  "validation_rules": {
+    "required_fields": ["id","producer_engine","schema_id","checksum","timestamp","provenance"],
+    "checksum_algorithm": "sha256",
+    "signature_required_for": ["signed_approval","audit_bundle"]
+  }
+}

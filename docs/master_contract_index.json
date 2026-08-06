@@ -1,0 +1,1009 @@
+{
+  "catalog_id": "master_contract_index",
+  "version": "1.0",
+  "catalog_schema_ref": "schemas/runtime_contract.schema.json",
+  "purpose": "Canonical index of runtime contracts defined by EOS v1.0.",
+  "owner": "Contracts Owner",
+  "metadata": {
+    "created_at": "2026-08-06T10:49:16.012Z",
+    "specification_source": "EOS v1.0 Specification Part 12 \u2014 EOS Runtime Orchestrator & Decision Engine"
+  },
+  "contracts": [
+    {
+      "contract_id": "execution-planner",
+      "contract_name": "Execution Planner Contract",
+      "purpose": "Transform business objectives into an executable execution_manifest.",
+      "owner_engine": "execution-planner",
+      "specification_source": "Part 12",
+      "inputs": [
+        "business_objective",
+        "goal_spec",
+        "architecture_bundle",
+        "constraints",
+        "run_seed",
+        "config_version"
+      ],
+      "outputs": [
+        "execution_manifest"
+      ],
+      "dependencies": [
+        "engine_registry",
+        "capability_registry"
+      ],
+      "preconditions": [
+        "business objective received",
+        "capability registry available"
+      ],
+      "postconditions": [
+        "validated execution_graph produced",
+        "execution_manifest persisted"
+      ],
+      "validation_rules": [
+        "DAG acyclicity",
+        "capability mapping consistency",
+        "engine availability"
+      ],
+      "evidence_produced": [
+        "execution_manifest"
+      ],
+      "failure_modes": [
+        "missing capabilities",
+        "invalid objective mapping",
+        "unsatisfiable constraints"
+      ],
+      "recovery_strategy": [
+        "human clarification",
+        "refine business objective",
+        "update capability mapping"
+      ],
+      "consumers": [
+        "dependency-resolution",
+        "engine-scheduler"
+      ],
+      "producers": [
+        "execution_manifest"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "dependency-resolution",
+      "contract_name": "Dependency Resolution Contract",
+      "purpose": "Resolve engine and capability dependencies and detect cycles.",
+      "owner_engine": "dependency-resolution",
+      "specification_source": "Part 12",
+      "inputs": [
+        "execution_manifest",
+        "engine_registry",
+        "capability_registry"
+      ],
+      "outputs": [
+        "resolved_graph",
+        "missing_prereqs",
+        "cycles"
+      ],
+      "dependencies": [
+        "execution-planner"
+      ],
+      "preconditions": [
+        "execution_manifest available"
+      ],
+      "postconditions": [
+        "acyclic resolved_graph or explicit cycle artifact"
+      ],
+      "validation_rules": [
+        "no dependency cycles",
+        "all referenced engines exist"
+      ],
+      "evidence_produced": [
+        "dependency_resolution_report"
+      ],
+      "failure_modes": [
+        "dependency cycles",
+        "missing prerequisite capabilities"
+      ],
+      "recovery_strategy": [
+        "human remediation",
+        "update capability registry"
+      ],
+      "consumers": [
+        "engine-scheduler",
+        "policy-enforcement"
+      ],
+      "producers": [
+        "resolved_graph"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "engine-scheduler",
+      "contract_name": "Engine Scheduler Contract",
+      "purpose": "Deterministically schedule engine execution with resource allocation.",
+      "owner_engine": "engine-scheduler",
+      "specification_source": "Part 12",
+      "inputs": [
+        "resolved_graph",
+        "resource_snapshot",
+        "policy_constraints"
+      ],
+      "outputs": [
+        "schedule",
+        "allocation_plan"
+      ],
+      "dependencies": [
+        "dependency-resolution"
+      ],
+      "preconditions": [
+        "resolved_graph available",
+        "resource snapshot available"
+      ],
+      "postconditions": [
+        "deterministic schedule produced",
+        "allocations assigned"
+      ],
+      "validation_rules": [
+        "schedule feasibility",
+        "resource quotas respected",
+        "dependency ordering preserved"
+      ],
+      "evidence_produced": [
+        "schedule_manifest"
+      ],
+      "failure_modes": [
+        "resource shortfall",
+        "unschedulable graph"
+      ],
+      "recovery_strategy": [
+        "escalation",
+        "resource adjustment",
+        "schedule refinement"
+      ],
+      "consumers": [
+        "state-management",
+        "runtime-optimization"
+      ],
+      "producers": [
+        "schedule"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "context-management",
+      "contract_name": "Context Management Contract",
+      "purpose": "Create and manage immutable execution context snapshots.",
+      "owner_engine": "context-management",
+      "specification_source": "Part 12",
+      "inputs": [
+        "execution_manifest",
+        "recon_report",
+        "runtime_context"
+      ],
+      "outputs": [
+        "context_snapshot"
+      ],
+      "dependencies": [
+        "evidence-aggregation"
+      ],
+      "preconditions": [
+        "execution_manifest available"
+      ],
+      "postconditions": [
+        "immutable context_snapshot produced"
+      ],
+      "validation_rules": [
+        "context immutability",
+        "inputs checksum consistency"
+      ],
+      "evidence_produced": [
+        "context_snapshot"
+      ],
+      "failure_modes": [
+        "conflicting overlays",
+        "invalid context inputs"
+      ],
+      "recovery_strategy": [
+        "human clarification",
+        "context correction"
+      ],
+      "consumers": [
+        "all runtime engines"
+      ],
+      "producers": [
+        "context_snapshot"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "state-management",
+      "contract_name": "State Management Contract",
+      "purpose": "Track node lifecycle states, checkpoints, and state transitions.",
+      "owner_engine": "state-management",
+      "specification_source": "Part 12",
+      "inputs": [
+        "schedule",
+        "context_snapshot"
+      ],
+      "outputs": [
+        "node_state_records",
+        "checkpoints"
+      ],
+      "dependencies": [
+        "engine-scheduler",
+        "context-management"
+      ],
+      "preconditions": [
+        "schedule available",
+        "context_snapshot available"
+      ],
+      "postconditions": [
+        "atomic state transitions recorded",
+        "checkpoints created"
+      ],
+      "validation_rules": [
+        "state transition atomicity",
+        "checkpoint integrity"
+      ],
+      "evidence_produced": [
+        "state_change_log"
+      ],
+      "failure_modes": [
+        "checkpoint failure",
+        "state corruption"
+      ],
+      "recovery_strategy": [
+        "restart from last checkpoint",
+        "human escalation"
+      ],
+      "consumers": [
+        "decision-engine",
+        "audit-engine"
+      ],
+      "producers": [
+        "node_state_records"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "decision-engine",
+      "contract_name": "Decision Engine Contract",
+      "purpose": "Make deterministic runtime decisions for execution flow, retries, rollback, and escalation.",
+      "owner_engine": "decision-engine",
+      "specification_source": "Part 12",
+      "inputs": [
+        "node_state_stream",
+        "policy_registry",
+        "validation_reports"
+      ],
+      "outputs": [
+        "decision_records"
+      ],
+      "dependencies": [
+        "state-management",
+        "policy-enforcement"
+      ],
+      "preconditions": [
+        "state updates available",
+        "policy registry loaded"
+      ],
+      "postconditions": [
+        "decision_record produced for each decision point"
+      ],
+      "validation_rules": [
+        "deterministic scoring",
+        "tie-breaker consistency"
+      ],
+      "evidence_produced": [
+        "decision_records"
+      ],
+      "failure_modes": [
+        "indecision",
+        "score ties without resolution"
+      ],
+      "recovery_strategy": [
+        "tie-breaker lexicographic selection",
+        "human escalation"
+      ],
+      "consumers": [
+        "failure-recovery",
+        "human-interaction"
+      ],
+      "producers": [
+        "decision_records"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "failure-recovery",
+      "contract_name": "Failure Recovery Contract",
+      "purpose": "Plan deterministic recovery actions and rollback strategies for failures.",
+      "owner_engine": "failure-recovery",
+      "specification_source": "Part 12",
+      "inputs": [
+        "failure_event",
+        "recovery_catalog",
+        "rollback_templates",
+        "policy_registry"
+      ],
+      "outputs": [
+        "recovery_plan"
+      ],
+      "dependencies": [
+        "decision-engine"
+      ],
+      "preconditions": [
+        "failure event detected",
+        "policy registry available"
+      ],
+      "postconditions": [
+        "recovery_plan produced"
+      ],
+      "validation_rules": [
+        "recovery option ranking",
+        "policy compliance"
+      ],
+      "evidence_produced": [
+        "recovery_plan"
+      ],
+      "failure_modes": [
+        "recovery attempt failure",
+        "human escalation required"
+      ],
+      "recovery_strategy": [
+        "retry policy",
+        "fallback execution",
+        "human approval"
+      ],
+      "consumers": [
+        "state-management",
+        "human-interaction"
+      ],
+      "producers": [
+        "recovery_plan"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "evidence-aggregation",
+      "contract_name": "Evidence Aggregation Contract",
+      "purpose": "Collect and normalize evidence from all engines into a single evidence_graph.",
+      "owner_engine": "evidence-aggregation",
+      "specification_source": "Part 12",
+      "inputs": [
+        "evidence_streams",
+        "schema_registry"
+      ],
+      "outputs": [
+        "evidence_graph"
+      ],
+      "dependencies": [
+        "schema_registry"
+      ],
+      "preconditions": [
+        "evidence streams available"
+      ],
+      "postconditions": [
+        "complete evidence_graph produced"
+      ],
+      "validation_rules": [
+        "content-addressed deduplication",
+        "provenance linkage"
+      ],
+      "evidence_produced": [
+        "evidence_graph"
+      ],
+      "failure_modes": [
+        "missing evidence",
+        "mismatched provenance"
+      ],
+      "recovery_strategy": [
+        "identify missing evidence",
+        "human evidence reconciliation"
+      ],
+      "consumers": [
+        "audit-engine",
+        "global-validation"
+      ],
+      "producers": [
+        "evidence_graph"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "global-validation",
+      "contract_name": "Global Validation Contract",
+      "purpose": "Validate execution consistency, contract conformance, and evidence completeness.",
+      "owner_engine": "global-validation",
+      "specification_source": "Part 12",
+      "inputs": [
+        "execution_manifest",
+        "evidence_graph",
+        "runtime_contracts"
+      ],
+      "outputs": [
+        "global_validation_report"
+      ],
+      "dependencies": [
+        "evidence-aggregation",
+        "policy-enforcement"
+      ],
+      "preconditions": [
+        "evidence_graph available",
+        "runtime contracts loaded"
+      ],
+      "postconditions": [
+        "validation_report produced"
+      ],
+      "validation_rules": [
+        "contract conformance",
+        "missing evidence detection",
+        "policy compliance"
+      ],
+      "evidence_produced": [
+        "validation_report"
+      ],
+      "failure_modes": [
+        "critical violations",
+        "compliance failures"
+      ],
+      "recovery_strategy": [
+        "block downstream promotion",
+        "human remediation"
+      ],
+      "consumers": [
+        "scheduler",
+        "decision-engine"
+      ],
+      "producers": [
+        "validation_report"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "runtime-optimization",
+      "contract_name": "Runtime Optimization Contract",
+      "purpose": "Optimize execution by cache reuse, parallelization, and deterministic replay preparations.",
+      "owner_engine": "runtime-optimization",
+      "specification_source": "Part 12",
+      "inputs": [
+        "schedule",
+        "cache_catalog",
+        "historical_metrics"
+      ],
+      "outputs": [
+        "optimized_schedule",
+        "cache_plan"
+      ],
+      "dependencies": [
+        "engine-scheduler",
+        "runtime-metrics"
+      ],
+      "preconditions": [
+        "schedule available"
+      ],
+      "postconditions": [
+        "optimized schedule produced"
+      ],
+      "validation_rules": [
+        "cache reuse correctness",
+        "parallel safety"
+      ],
+      "evidence_produced": [
+        "optimization_manifest"
+      ],
+      "failure_modes": [
+        "false reuse candidate",
+        "optimization misallocation"
+      ],
+      "recovery_strategy": [
+        "re-run with adjusted cache plan"
+      ],
+      "consumers": [
+        "state-management",
+        "scheduler"
+      ],
+      "producers": [
+        "optimized_schedule"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "human-interaction",
+      "contract_name": "Human Interaction Contract",
+      "purpose": "Manage approvals, clarifications, and signed decision workflows.",
+      "owner_engine": "human-interaction",
+      "specification_source": "Part 12",
+      "inputs": [
+        "decision_records",
+        "required_approvals",
+        "approver_list",
+        "governance_profile"
+      ],
+      "outputs": [
+        "human_actions",
+        "signed_approvals"
+      ],
+      "dependencies": [
+        "policy-enforcement",
+        "evidence-aggregation"
+      ],
+      "preconditions": [
+        "required approvals identified"
+      ],
+      "postconditions": [
+        "signed approvals recorded"
+      ],
+      "validation_rules": [
+        "approval signature validity",
+        "evidence linkage"
+      ],
+      "evidence_produced": [
+        "signed_approval"
+      ],
+      "failure_modes": [
+        "no response",
+        "missing signature"
+      ],
+      "recovery_strategy": [
+        "escalation",
+        "deadline enforcement"
+      ],
+      "consumers": [
+        "decision-engine",
+        "audit-engine"
+      ],
+      "producers": [
+        "signed_approvals"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "audit-engine",
+      "contract_name": "Audit Engine Contract",
+      "purpose": "Package immutable audit evidence and execution history into an audit_bundle.",
+      "owner_engine": "audit-engine",
+      "specification_source": "Part 12",
+      "inputs": [
+        "state_store",
+        "evidence_graph",
+        "decision_registry"
+      ],
+      "outputs": [
+        "audit_bundle"
+      ],
+      "dependencies": [
+        "evidence-aggregation",
+        "decision-engine"
+      ],
+      "preconditions": [
+        "state and evidence available"
+      ],
+      "postconditions": [
+        "audit_bundle produced"
+      ],
+      "validation_rules": [
+        "audit completeness",
+        "signature integrity"
+      ],
+      "evidence_produced": [
+        "audit_bundle"
+      ],
+      "failure_modes": [
+        "archive corruption",
+        "missing evidence"
+      ],
+      "recovery_strategy": [
+        "re-collect evidence",
+        "rebuild bundle"
+      ],
+      "consumers": [
+        "compliance",
+        "governance"
+      ],
+      "producers": [
+        "audit_bundle"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "policy-enforcement",
+      "contract_name": "Policy Enforcement Contract",
+      "purpose": "Evaluate all proposed actions against governance and compliance policies.",
+      "owner_engine": "policy-enforcement",
+      "specification_source": "Part 12",
+      "inputs": [
+        "policy_registry",
+        "node_action_proposal",
+        "evidence_graph"
+      ],
+      "outputs": [
+        "enforcement_decisions"
+      ],
+      "dependencies": [
+        "schema_registry",
+        "evidence-aggregation"
+      ],
+      "preconditions": [
+        "policy registry loaded"
+      ],
+      "postconditions": [
+        "enforcement decision recorded"
+      ],
+      "validation_rules": [
+        "policy precedence",
+        "deterministic evaluation"
+      ],
+      "evidence_produced": [
+        "enforcement_decision"
+      ],
+      "failure_modes": [
+        "conflicting policies",
+        "action denial"
+      ],
+      "recovery_strategy": [
+        "human clarification",
+        "policy resolution"
+      ],
+      "consumers": [
+        "decision-engine",
+        "scheduler"
+      ],
+      "producers": [
+        "enforcement_decisions"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "multi-agent-coordination",
+      "contract_name": "Multi-Agent Coordination Contract",
+      "purpose": "Coordinate parallel agents, lock contention, and delegation deterministically.",
+      "owner_engine": "multi-agent-coordination",
+      "specification_source": "Part 12",
+      "inputs": [
+        "agent_pool",
+        "execution_manifest",
+        "capability_registry"
+      ],
+      "outputs": [
+        "coordination_plan"
+      ],
+      "dependencies": [
+        "capability_registry",
+        "engine-scheduler"
+      ],
+      "preconditions": [
+        "execution manifest available",
+        "agent pool defined"
+      ],
+      "postconditions": [
+        "coordination plan produced"
+      ],
+      "validation_rules": [
+        "agent assignment determinism",
+        "conflict resolution"
+      ],
+      "evidence_produced": [
+        "coordination_manifest"
+      ],
+      "failure_modes": [
+        "agent deadlock",
+        "resource contention"
+      ],
+      "recovery_strategy": [
+        "tie-breaker resolution",
+        "human escalation"
+      ],
+      "consumers": [
+        "agents running tasks"
+      ],
+      "producers": [
+        "coordination_plan"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "runtime-contracts",
+      "contract_name": "Runtime Contracts Validation Contract",
+      "purpose": "Validate runtime contract conformance against schema definitions.",
+      "owner_engine": "runtime-contracts",
+      "specification_source": "Part 12",
+      "inputs": [
+        "runtime_contracts_list",
+        "schema_registry"
+      ],
+      "outputs": [
+        "contract_validation_results"
+      ],
+      "dependencies": [
+        "schema_registry"
+      ],
+      "preconditions": [
+        "schema registry available"
+      ],
+      "postconditions": [
+        "contract validation results produced"
+      ],
+      "validation_rules": [
+        "schema conformance",
+        "contract compatibility"
+      ],
+      "evidence_produced": [
+        "contract_validation_report"
+      ],
+      "failure_modes": [
+        "incompatible contract versions",
+        "missing schema refs"
+      ],
+      "recovery_strategy": [
+        "contract remediation",
+        "schema update"
+      ],
+      "consumers": [
+        "all engines"
+      ],
+      "producers": [
+        "contract_validation_results"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "runtime-metrics",
+      "contract_name": "Runtime Metrics Contract",
+      "purpose": "Collect and report deterministic runtime metrics for executions.",
+      "owner_engine": "runtime-metrics",
+      "specification_source": "Part 12",
+      "inputs": [
+        "execution_events",
+        "resource_ledger"
+      ],
+      "outputs": [
+        "runtime_metrics"
+      ],
+      "dependencies": [
+        "state-management"
+      ],
+      "preconditions": [
+        "execution events available"
+      ],
+      "postconditions": [
+        "metrics snapshots produced"
+      ],
+      "validation_rules": [
+        "metric aggregation consistency"
+      ],
+      "evidence_produced": [
+        "metrics snapshots"
+      ],
+      "failure_modes": [
+        "missing instrumentation",
+        "metric drift"
+      ],
+      "recovery_strategy": [
+        "instrumentation repair"
+      ],
+      "consumers": [
+        "runtime-optimization",
+        "governance"
+      ],
+      "producers": [
+        "runtime_metrics"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "global-determinism",
+      "contract_name": "Global Determinism Contract",
+      "purpose": "Verify deterministic execution and replay consistency.",
+      "owner_engine": "global-determinism",
+      "specification_source": "Part 12",
+      "inputs": [
+        "run_seed",
+        "config_version",
+        "execution_manifest"
+      ],
+      "outputs": [
+        "determinism_proof",
+        "replay_check_results"
+      ],
+      "dependencies": [
+        "evidence-aggregation",
+        "state-management"
+      ],
+      "preconditions": [
+        "execution_manifest available"
+      ],
+      "postconditions": [
+        "replay proof produced"
+      ],
+      "validation_rules": [
+        "replay identity",
+        "seed consistency"
+      ],
+      "evidence_produced": [
+        "determinism_proof"
+      ],
+      "failure_modes": [
+        "non-deterministic deviation"
+      ],
+      "recovery_strategy": [
+        "flag non-determinism",
+        "archive non-deterministic run"
+      ],
+      "consumers": [
+        "governance",
+        "audit"
+      ],
+      "producers": [
+        "determinism_proof"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "runtime-apis",
+      "contract_name": "Runtime APIs Contract",
+      "purpose": "Define canonical external interfaces to EOS runtime components.",
+      "owner_engine": "runtime-apis",
+      "specification_source": "Part 12",
+      "inputs": [
+        "external_requests"
+      ],
+      "outputs": [
+        "api_responses",
+        "execution_actions"
+      ],
+      "dependencies": [
+        "policy_registry"
+      ],
+      "preconditions": [
+        "authenticated caller"
+      ],
+      "postconditions": [
+        "API response returned"
+      ],
+      "validation_rules": [
+        "interface contract conformance",
+        "auth enforcement"
+      ],
+      "evidence_produced": [
+        "api_access_logs"
+      ],
+      "failure_modes": [
+        "unauthenticated access",
+        "contract violation"
+      ],
+      "recovery_strategy": [
+        "reject request",
+        "audit log"
+      ],
+      "consumers": [
+        "external systems",
+        "agents"
+      ],
+      "producers": [
+        "api responses"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "eos-lifecycle",
+      "contract_name": "EOS Lifecycle Contract",
+      "purpose": "Define transition rules across EOS lifecycle phases.",
+      "owner_engine": "eos-lifecycle",
+      "specification_source": "Part 12",
+      "inputs": [
+        "business_objective",
+        "governance_policies"
+      ],
+      "outputs": [
+        "lifecycle_manifest"
+      ],
+      "dependencies": [
+        "engine_registry",
+        "capability_registry",
+        "policy_registry",
+        "schema_registry"
+      ],
+      "preconditions": [
+        "business objective defined"
+      ],
+      "postconditions": [
+        "lifecycle_manifest produced"
+      ],
+      "validation_rules": [
+        "phase precondition fulfillment",
+        "artifact availability"
+      ],
+      "evidence_produced": [
+        "lifecycle_manifest"
+      ],
+      "failure_modes": [
+        "missing artifacts",
+        "transition gap"
+      ],
+      "recovery_strategy": [
+        "freeze transition",
+        "human remediation"
+      ],
+      "consumers": [
+        "governance",
+        "release"
+      ],
+      "producers": [
+        "lifecycle_manifest"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    },
+    {
+      "contract_id": "master-control-plane",
+      "contract_name": "Master Control Plane Contract",
+      "purpose": "Maintain the authoritative EOS control plane state and registries.",
+      "owner_engine": "master-control-plane",
+      "specification_source": "Part 12",
+      "inputs": [
+        "engines",
+        "capabilities",
+        "policies",
+        "schemas"
+      ],
+      "outputs": [
+        "control_plane_state"
+      ],
+      "dependencies": [
+        "engine_registry",
+        "capability_registry",
+        "policy_registry",
+        "schema_registry",
+        "version_registry",
+        "artifact_registry",
+        "evidence_registry",
+        "decision_registry"
+      ],
+      "preconditions": [
+        "registries loaded"
+      ],
+      "postconditions": [
+        "control_plane_state snapshot produced"
+      ],
+      "validation_rules": [
+        "registry consistency",
+        "state authority"
+      ],
+      "evidence_produced": [
+        "control_plane_state_snapshot"
+      ],
+      "failure_modes": [
+        "registry inconsistency",
+        "state drift"
+      ],
+      "recovery_strategy": [
+        "state reconciliation",
+        "registry refresh"
+      ],
+      "consumers": [
+        "entire EOS runtime"
+      ],
+      "producers": [
+        "control_plane_state"
+      ],
+      "version": "1.0",
+      "lifecycle_status": "seeded"
+    }
+  ]
+}

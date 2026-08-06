@@ -1,0 +1,10 @@
+{
+  "id":"signed-approval-20260806-sample",
+  "producer_engine":"human-interaction",
+  "schema_id":"decision_record",
+  "decision_id":"approval-request",
+  "signer_role":"Standards Committee Chair",
+  "signed_timestamp":"2026-08-06T11:04:41.198Z",
+  "approval_scope":"eos-v1.0-freeze-checklist",
+  "evidence_references":[]
+}

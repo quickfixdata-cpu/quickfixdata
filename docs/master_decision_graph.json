@@ -1,0 +1,42 @@
+{
+  "decision_graph_id": "master_decision_graph",
+  "version": "1.0",
+  "generated_from": "EOS v1.0 Specification Parts 1-12",
+  "generated_at": "2026-08-06T11:04:41.198Z",
+  "nodes": [
+    {"id":"plan-execution","type":"decision","title":"Plan Execution","description":"Choose engines and capabilities for an objective","produced_by":"execution-planner","requires_approval":false},
+    {"id":"resolve-dependencies","type":"decision","title":"Resolve Dependencies","description":"Resolve engine/capability dependencies; detect cycles","produced_by":"dependency-resolution","requires_approval":false},
+    {"id":"deterministic-schedule","type":"decision","title":"Deterministic Scheduling","description":"Compute deterministic schedule and allocations","produced_by":"engine-scheduler","requires_approval":false},
+    {"id":"start-node","type":"action","title":"Start Node Invocation","description":"Decision to start an engine node","produced_by":"state-management","requires_approval":false},
+    {"id":"node-failure","type":"decision","title":"Node Failure Handling","description":"Decide retry, fallback, rollback on node failure","produced_by":"decision-engine","requires_approval":true},
+    {"id":"retry-decision","type":"decision","title":"Retry Decision","description":"Apply retry policy and counts","produced_by":"decision-engine","requires_approval":false},
+    {"id":"rollback-decision","type":"decision","title":"Rollback Decision","description":"Decide rollback vs compensate and scope","produced_by":"decision-engine","requires_approval":true},
+    {"id":"escalation","type":"decision","title":"Escalation","description":"Escalate to human when thresholds exceeded","produced_by":"decision-engine","requires_approval":true},
+    {"id":"policy-violation","type":"decision","title":"Policy Violation","description":"Policy Enforcement denies action; choose remediation","produced_by":"policy-enforcement","requires_approval":true},
+    {"id":"promotion-decision","type":"decision","title":"Promotion Decision","description":"Promote artifacts between environments (staging->prod)","produced_by":"master-control-plane","requires_approval":true},
+    {"id":"approval-request","type":"decision","title":"Approval Request","description":"Create human approval request with evidence links","produced_by":"human-interaction","requires_approval":false},
+    {"id":"approval-response","type":"decision","title":"Approval Response","description":"Record signed approval or denial","produced_by":"human-interaction","requires_approval":false},
+    {"id":"termination","type":"decision","title":"Termination","description":"Decide to terminate execution","produced_by":"decision-engine","requires_approval":true}
+  ],
+  "edges": [
+    {"from":"plan-execution","to":"resolve-dependencies"},
+    {"from":"resolve-dependencies","to":"deterministic-schedule"},
+    {"from":"deterministic-schedule","to":"start-node"},
+    {"from":"start-node","to":"node-failure","condition":"on_failure"},
+    {"from":"node-failure","to":"retry-decision"},
+    {"from":"retry-decision","to":"start-node","condition":"retry_allowed"},
+    {"from":"node-failure","to":"rollback-decision","condition":"retry_exhausted"},
+    {"from":"rollback-decision","to":"escalation","condition":"requires_human"},
+    {"from":"policy-violation","to":"approval-request"},
+    {"from":"approval-request","to":"approval-response"},
+    {"from":"approval-response","to":"promotion-decision","condition":"approved"},
+    {"from":"approval-response","to":"termination","condition":"denied"},
+    {"from":"promotion-decision","to":"termination","condition":"promotion_completed"},
+    {"from":"escalation","to":"approval-request"}
+  ],
+  "validation": {
+    "unique_node_ids": true,
+    "no_orphan_nodes": true,
+    "no_cycles": true
+  }
+}

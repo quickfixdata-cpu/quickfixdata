@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/capability_registry.schema.json",
+  "title": "capability_registry",
+  "description": "Registry of capabilities and metadata.",
+  "type": "object",
+  "required": ["capabilities"],
+  "properties": {
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id","description","providers"],
+        "properties": {
+          "id": {"type":"string"},
+          "description": {"type":"string"},
+          "providers": {"type":"array","items":{"type":"string"}},
+          "metadata": {"type":"object"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

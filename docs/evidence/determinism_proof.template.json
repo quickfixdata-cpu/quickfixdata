@@ -1,0 +1,13 @@
+{
+  "id":"determinism-proof-<YYYYMMDD>-<unique>",
+  "producer_engine":"global-determinism",
+  "schema_id":"determinism_proof",
+  "execution_id":"<execution_id>",
+  "seed":"<run_seed>",
+  "config_hash":"<config_hash>",
+  "replay_results":{
+    "match": true,
+    "differences": []
+  },
+  "created_at":"<RFC3339>"
+}
