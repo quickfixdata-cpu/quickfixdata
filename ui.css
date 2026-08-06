@@ -1,0 +1,194 @@
+/* QuickFixData Premium UI tokens and key styles
+   - Design tokens (colors, spacing, typography)
+   - Animated GPU-friendly background (supports reduced motion)
+   - Headline gradient & reveal
+   - Glass morphism helpers
+   - Buttons, inputs, skeletons
+*/
+:root{
+  /* Colors (from spec) */
+  --bg-void: #05070D;
+  --bg-deep: #0A0F1E;
+  --bg-panel: #0D1526;
+  --accent-cyan: #22D3EE;
+  --accent-violet: #8B5CF6;
+  --accent-magenta: #D946EF;
+  --text-primary: #F5F7FA;
+  --text-secondary: #8B96A8;
+
+  /* Status colors (use only for status) */
+  --success: #16A34A;
+  --warning: #F59E0B;
+  --critical: #EF4444;
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* Radius */
+  --radius-1: 6px;
+  --radius-2: 12px;
+  --radius-3: 18px;
+
+  /* Elevation / shadow */
+  --shadow-soft: 0 6px 30px rgba(4,8,20,0.6);
+  --shadow-small: 0 4px 18px rgba(4,8,20,0.45);
+
+  /* Motion */
+  --motion-fast: 160ms;
+  --motion-medium: 260ms;
+  --motion-slow: 420ms;
+  --motion-ease: cubic-bezier(.16,.84,.36,1);
+
+  /* Typography tokens */
+  --font-display: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+}
+
+/* Base layout adjustments for premium look */
+html,body{height:100%;}
+body{
+  background: radial-gradient(1200px 600px at 10% 20%, rgba(34,211,238,0.03), transparent),
+              radial-gradient(900px 450px at 95% 80%, rgba(139,92,246,0.025), transparent),
+              var(--bg-deep);
+  color:var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  overflow-y:auto;
+}
+
+/* Animated living background layers */
+body::before,
+body::after{
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  mix-blend-mode: screen;
+}
+
+/* soft drifting beams */
+body::before{
+  background: linear-gradient(120deg, rgba(34,211,238,0.06) 0%, rgba(139,92,246,0.04) 40%, rgba(217,70,239,0.03) 100%);
+  filter: blur(60px) saturate(120%);
+  transform: translateZ(0) translateY(-4%);
+  opacity: 0.9;
+  animation: bgDrift 36s linear infinite;
+}
+
+/* subtle particle layer using CSS radial-gradient tiled via background-image */
+body::after{
+  background-image: radial-gradient(rgba(255,255,255,0.01) 1px, transparent 1px);
+  background-size: 60px 60px;
+  opacity: 0.6;
+  transform: translateZ(0);
+  animation: bgParticles 42s linear infinite;
+}
+
+@keyframes bgDrift{
+  0%{ transform: translateY(-6%) rotate(0deg); filter: blur(60px) saturate(110%); }
+  50%{ transform: translateY(6%) rotate(2deg); filter: blur(50px) saturate(125%); }
+  100%{ transform: translateY(-6%) rotate(0deg); filter: blur(60px) saturate(110%); }
+}
+@keyframes bgParticles{
+  0%{ transform: translateY(0) translateX(0); }
+  50%{ transform: translateY(-20px) translateX(10px) }
+  100%{ transform: translateY(0) translateX(0); }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce){
+  body::before, body::after{ animation: none !important; }
+}
+
+/* Header and hero adjustments to ensure visibility above background */
+header, .hero{ position: relative; z-index: 5; }
+
+/* Headline gradient & reveal */
+.headline-gradient{
+  font-family: var(--font-display);
+  font-weight:700;
+  font-size: clamp(28px, 6.2vw, 56px);
+  line-height:1.02;
+  color: transparent;
+  background: linear-gradient(92deg, var(--accent-cyan), var(--accent-violet) 45%, var(--accent-magenta));
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: 0 6px 30px rgba(11,17,30,0.45);
+}
+
+/* gradient halo glow */
+.headline-glow{
+  position: relative;
+}
+.headline-glow::after{
+  content:'';
+  position:absolute; inset:-6px; z-index:-1; border-radius:14px; opacity:0.25;
+  background: radial-gradient(closest-side, rgba(34,211,238,0.06), transparent 60%);
+  filter: blur(28px);
+}
+
+/* reveal animation */
+.reveal-words span{ display:inline-block; opacity:0; transform: translateY(10px) scale(0.996); }
+.reveal-words.animate span{
+  animation: wordReveal var(--motion-medium) var(--motion-ease) forwards;
+}
+.reveal-words.animate span:nth-child(1){ animation-delay: 0.05s }
+.reveal-words.animate span:nth-child(2){ animation-delay: 0.12s }
+.reveal-words.animate span:nth-child(3){ animation-delay: 0.19s }
+.reveal-words.animate span:nth-child(4){ animation-delay: 0.26s }
+.reveal-words.animate span:nth-child(5){ animation-delay: 0.33s }
+@keyframes wordReveal{ to { opacity:1; transform: translateY(0) scale(1); } }
+
+/* Cursor radial follower */
+.cursor-follower{ position: fixed; pointer-events:none; z-index:9999; mix-blend-mode: screen; }
+.cursor-follower .dot{ width: 140px; height: 140px; border-radius:50%; background: radial-gradient(circle, rgba(34,211,238,0.12) 0%, rgba(139,92,246,0.06) 40%, transparent 60%); transform: translate(-50%,-50%); filter: blur(22px); opacity:0.65; }
+@media (prefers-reduced-motion: reduce){ .cursor-follower{ display:none !important } }
+
+/* Glass panel helper */
+.glass{
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  backdrop-filter: blur(8px) saturate(120%);
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-small);
+}
+
+/* Buttons */
+.btn-primary{
+  display:inline-flex; align-items:center; gap:8px; padding:10px 16px; border-radius:10px; font-weight:600; color:var(--bg-void);
+  background: linear-gradient(90deg, rgba(34,211,238,1), rgba(139,92,246,0.95)); box-shadow:0 8px 30px rgba(34,211,238,0.06);
+  transition: transform var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast);
+}
+.btn-primary:hover{ transform: translateY(-3px); box-shadow:0 14px 48px rgba(34,211,238,0.1); }
+
+.btn-ghost{ padding:8px 14px; border-radius:10px; border:1px solid rgba(255,255,255,0.06); color:var(--text-primary); background:transparent }
+
+/* Skeleton shimmer */
+.skeleton{ background: linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.04) 50%, rgba(255,255,255,0.02) 100%); background-size:200% 100%; animation: shimmer 1.4s linear infinite; border-radius:8px; }
+@keyframes shimmer{ 0%{ background-position:200% 0 } 100%{ background-position:-200% 0 } }
+
+/* Input focus states */
+input, textarea, select{ background: rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.04); color:var(--text-primary); padding:10px 12px; border-radius:8px }
+input:focus, textarea:focus{ outline:none; box-shadow:0 0 0 4px rgba(34,211,238,0.07); border-color: rgba(34,211,238,0.7) }
+
+/* Data table highlight */
+.table-row:hover{ background: linear-gradient(90deg, rgba(34,211,238,0.02), transparent); }
+
+/* Utility: subtle underlines for stats */
+.stat-number{ font-family: var(--font-mono); font-size: 28px; color:var(--text-primary); display:inline-block }
+.stat-underline{ height:3px; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-violet)); border-radius:3px; }
+
+/* Ensure our UI has higher stacking where needed without blocking the app */
+.premium-layer{ position:relative; z-index:6 }
+
+/* Small responsive helpers */
+@media (max-width:900px){ .hero{ grid-template-columns:1fr; padding:6vh 6vw; gap:20px } .headline-gradient{ font-size: clamp(22px, 8.6vw, 42px); } }

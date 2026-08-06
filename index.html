@@ -19,8 +19,10 @@
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%2314181F'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23E8A33D'%3E%E2%9C%93%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600,700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="ui.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script defer src="ui.js"></script>
 <style>
   :root{
     /* Corporate/fintech palette — deep navy for trust + authority,
@@ -2110,7 +2112,8 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   }
 
 
-  const WORKER_URL = "https://api.quickfixdata.in";
+  const metaWorker = document.querySelector('meta[name="worker-url"]');
+  const WORKER_URL = metaWorker && metaWorker.content ? metaWorker.content : (window.__WORKER_URL__ || "https://api.quickfixdata.in");
 
   const RUN_TOOL_CATEGORIES = ['All', 'Spreadsheet', 'Documents', 'Business'];
   const RUN_TOOL_DEFS = [
@@ -2567,7 +2570,13 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       startCountdown(result.expiresIn);
       startPolling(result.sessionId);
     } catch (err) {
-      const friendly = describeUploadError(err.message, currentLocalFileSummary);
+      let friendly;
+      const msg = String(err && err.message || err || '');
+      if (/failed to fetch|network|typeerror/i.test(msg)) {
+        friendly = `Could not reach the processing server at ${WORKER_URL}. Check your internet connection, the API host, and CORS (ALLOWED_ORIGIN).`;
+      } else {
+        friendly = describeUploadError(msg, currentLocalFileSummary);
+      }
       errorMsg.textContent = friendly;
       renderUploadDiagnostics({
         ...(currentLocalFileSummary || { filename: 'Upload', sourceType: 'File', sizeLabel: '—', rowCount: '—', headers: [], detected: {} }),
