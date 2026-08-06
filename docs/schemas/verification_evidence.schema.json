@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/verification_evidence.schema.json",
+  "title": "verification_evidence",
+  "description": "Deterministic verification outputs and checksums.",
+  "type": "object",
+  "required": ["id","execution_id","proof","created_at"],
+  "properties": {
+    "id": {"type":"string"},
+    "execution_id": {"type":"string"},
+    "proof": {"type":"object"},
+    "created_at": {"type":"string","format":"date-time"}
+  },
+  "additionalProperties": false
+}

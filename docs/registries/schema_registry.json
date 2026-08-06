@@ -1,0 +1,30 @@
+{
+  "registry_id": "schema_registry",
+  "version": "1.0",
+  "schema_ref": "../schemas/schema_index.json",
+  "purpose": "Registry of canonical JSON schema artifacts for EOS v1.0.",
+  "owner": "Schema Registry Owner",
+  "metadata": { "created_at": "2026-08-06T10:42:43.189Z" },
+  "schemas": [
+    {"id":"execution_manifest","file":"../schemas/execution_manifest.schema.json","version":"1.0"},
+    {"id":"execution_graph","file":"../schemas/execution_graph.schema.json","version":"1.0"},
+    {"id":"context_snapshot","file":"../schemas/context_snapshot.schema.json","version":"1.0"},
+    {"id":"runtime_contract","file":"../schemas/runtime_contract.schema.json","version":"1.0"},
+    {"id":"evidence_node","file":"../schemas/evidence_node.schema.json","version":"1.0"},
+    {"id":"evidence_graph","file":"../schemas/evidence_graph.schema.json","version":"1.0"},
+    {"id":"decision_record","file":"../schemas/decision_record.schema.json","version":"1.0"},
+    {"id":"audit_bundle","file":"../schemas/audit_bundle.schema.json","version":"1.0"},
+    {"id":"policy","file":"../schemas/policy.schema.json","version":"1.0"},
+    {"id":"capability_registry","file":"../schemas/capability_registry.schema.json","version":"1.0"},
+    {"id":"engine_registry","file":"../schemas/engine_registry.schema.json","version":"1.0"},
+    {"id":"recon_report","file":"../schemas/recon_report.schema.json","version":"1.0"},
+    {"id":"repo_manifest","file":"../schemas/repo_manifest.schema.json","version":"1.0"},
+    {"id":"implementation_plan","file":"../schemas/implementation_plan.schema.json","version":"1.0"},
+    {"id":"validation_report","file":"../schemas/validation_report.schema.json","version":"1.0"},
+    {"id":"verification_evidence","file":"../schemas/verification_evidence.schema.json","version":"1.0"},
+    {"id":"test_plan","file":"../schemas/test_plan.schema.json","version":"1.0"},
+    {"id":"test_evidence","file":"../schemas/test_evidence.schema.json","version":"1.0"},
+    {"id":"release_plan","file":"../schemas/release_plan.schema.json","version":"1.0"},
+    {"id":"determinism_proof","file":"../schemas/determinism_proof.schema.json","version":"1.0"}
+  ]
+}

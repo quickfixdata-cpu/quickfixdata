@@ -1,0 +1,7 @@
+# CODEOWNERS for EOS v1.0 candidate
+/docs/ @QuickFixData-EOS-Owners
+/docs/schemas/ @QuickFixData-EOS-Owners
+/docs/registries/ @QuickFixData-EOS-Owners
+/ARCHITECTURE.md @Chief-EOS-Architect
+/ADR-0001-RECONSTRUCTED-ARCHITECTURE.md @Standards-Committee-Chair
+README.md @Repo-Admins

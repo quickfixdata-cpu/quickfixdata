@@ -1,0 +1,16 @@
+{
+  "registry_id": "decision_registry",
+  "version": "1.0",
+  "schema_ref": "../schemas/decision_record.schema.json",
+  "purpose": "Catalog of decision types and seed decision entries for EOS v1.0.",
+  "owner": "Decision Engine Owner",
+  "metadata": { "created_at": "2026-08-06T10:42:43.189Z" },
+  "decisions": [
+    {"id":"start-node","description":"Decision to start a node invocation","owner":"Decision Engine Owner","schema_ref":"../schemas/decision_record.schema.json"},
+    {"id":"node-failure","description":"Decision pathway for node execution failures","owner":"Decision Engine Owner","schema_ref":"../schemas/decision_record.schema.json"},
+    {"id":"policy-violation","description":"Decision when policy enforcement denies action","owner":"Policy Enforcement Owner","schema_ref":"../schemas/decision_record.schema.json"},
+    {"id":"promotion-decision","description":"Decision to promote execution artifacts (staging->prod)","owner":"Release Owner","schema_ref":"../schemas/decision_record.schema.json"},
+    {"id":"rollback-decision","description":"Decision to rollback or compensate","owner":"Failure Recovery Owner","schema_ref":"../schemas/decision_record.schema.json"},
+    {"id":"approval-request","description":"Decision to request human approval","owner":"Human Interaction Owner","schema_ref":"../schemas/decision_record.schema.json"}
+  ]
+}

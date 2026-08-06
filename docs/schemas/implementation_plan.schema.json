@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/implementation_plan.schema.json",
+  "title": "implementation_plan",
+  "description": "Planned implementation edits and metadata.",
+  "type": "object",
+  "required": ["id","author","created_at","changes"],
+  "properties": {
+    "id": {"type":"string"},
+    "author": {"type":"string"},
+    "created_at": {"type":"string","format":"date-time"},
+    "changes": {"type":"array","items":{"type":"object"}},
+    "provenance": {"type":"object"}
+  },
+  "additionalProperties": false
+}

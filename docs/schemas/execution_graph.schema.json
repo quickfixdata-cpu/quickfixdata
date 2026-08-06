@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/execution_graph.schema.json",
+  "title": "execution_graph",
+  "description": "Deterministic DAG of engine invocation nodes.",
+  "type": "object",
+  "required": ["nodes","edges"],
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id","engine_id","inputs_schema_id","outputs_schema_id"],
+        "properties": {
+          "id": {"type":"string"},
+          "engine_id": {"type":"string"},
+          "inputs_schema_id": {"type":"string"},
+          "outputs_schema_id": {"type":"string"},
+          "estimated_duration_seconds": {"type":"integer"},
+          "metadata": {"type":"object"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {"type":"object","required":["from","to"],"properties":{"from":{"type":"string"},"to":{"type":"string"}}}
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,38 @@
+﻿{
+    "generated_at":  "2026-08-06T11:10:20.6836536+05:30",
+    "counts":  {
+                   "evidence_templates":  6,
+                   "decisions":  13,
+                   "contracts":  20,
+                   "registries":  8,
+                   "schemas":  20,
+                   "engines":  20,
+                   "lifecycle_stages":  12
+               },
+    "cross_reference_status":  "ok",
+    "duplicate_ids":  [
+                          "execution-planner",
+                          "dependency-resolution",
+                          "engine-scheduler",
+                          "context-management",
+                          "state-management",
+                          "decision-engine",
+                          "failure-recovery",
+                          "evidence-aggregation",
+                          "global-validation",
+                          "runtime-optimization",
+                          "human-interaction",
+                          "audit-engine",
+                          "policy-enforcement",
+                          "multi-agent-coordination",
+                          "runtime-contracts",
+                          "runtime-metrics",
+                          "global-determinism",
+                          "runtime-apis",
+                          "eos-lifecycle",
+                          "master-control-plane",
+                          "capability_registry",
+                          "engine_registry"
+                      ],
+    "validation_notes":  "Duplicates list shows natural name overlaps across registries and engine IDs which are intentional (engines and registry ids overlap in name space). No blocking duplicates across same registry boundaries."
+}

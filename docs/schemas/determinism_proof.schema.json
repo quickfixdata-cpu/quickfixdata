@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/determinism_proof.schema.json",
+  "title": "determinism_proof",
+  "description": "Proof that a run is deterministic (replay checksums).",
+  "type": "object",
+  "required": ["id","execution_id","seed","config_hash","replay_results","created_at"],
+  "properties": {
+    "id": {"type":"string"},
+    "execution_id": {"type":"string"},
+    "seed": {"type":"string"},
+    "config_hash": {"type":"string"},
+    "replay_results": {"type":"object"},
+    "created_at": {"type":"string","format":"date-time"}
+  },
+  "additionalProperties": false
+}

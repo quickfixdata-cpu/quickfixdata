@@ -1,0 +1,9 @@
+{
+  "id":"audit-bundle-<YYYYMMDD>-<unique>",
+  "producer_engine":"audit-engine",
+  "schema_id":"audit_bundle",
+  "execution_id":"<execution_id>",
+  "evidence_index": [],
+  "created_at":"<RFC3339>",
+  "signature":"<signature>"
+}

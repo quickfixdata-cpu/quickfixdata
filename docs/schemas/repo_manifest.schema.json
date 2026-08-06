@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/repo_manifest.schema.json",
+  "title": "repo_manifest",
+  "description": "Repository manifest snapshot.",
+  "type": "object",
+  "required": ["repo_name","commit_sha","files"],
+  "properties": {
+    "repo_name": {"type":"string"},
+    "commit_sha": {"type":"string"},
+    "files": {"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"checksum":{"type":"string"}}}}
+  },
+  "additionalProperties": false
+}

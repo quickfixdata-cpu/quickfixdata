@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/test_evidence.schema.json",
+  "title": "test_evidence",
+  "description": "QA test execution results.",
+  "type": "object",
+  "required": ["id","test_plan_id","results","created_at"],
+  "properties": {
+    "id": {"type":"string"},
+    "test_plan_id": {"type":"string"},
+    "results": {"type":"array","items":{"type":"object"}},
+    "created_at": {"type":"string","format":"date-time"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,33 @@
+{
+  "registry_id": "engine_registry",
+  "version": "1.0",
+  "schema_ref": "../schemas/engine_registry.schema.json",
+  "purpose": "Registry of EOS runtime engines and runtime contract pointers.",
+  "owner": "Master Control Plane",
+  "metadata": {
+    "created_at": "2026-08-06T10:42:43.189Z",
+    "description": "Seed entries for all engines defined in EOS v1.0"
+  },
+  "engines": [
+    {"id":"execution-planner","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#execution-planner"},
+    {"id":"dependency-resolution","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#dependency-resolution"},
+    {"id":"engine-scheduler","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#engine-scheduler"},
+    {"id":"context-management","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#context-management"},
+    {"id":"state-management","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#state-management"},
+    {"id":"decision-engine","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#decision-engine"},
+    {"id":"failure-recovery","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#failure-recovery"},
+    {"id":"evidence-aggregation","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#evidence-aggregation"},
+    {"id":"global-validation","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#global-validation"},
+    {"id":"runtime-optimization","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#runtime-optimization"},
+    {"id":"human-interaction","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#human-interaction"},
+    {"id":"audit-engine","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#audit-engine"},
+    {"id":"policy-enforcement","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#policy-enforcement"},
+    {"id":"multi-agent-coordination","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#multi-agent-coordination"},
+    {"id":"runtime-contracts","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#runtime-contracts"},
+    {"id":"runtime-metrics","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#runtime-metrics"},
+    {"id":"global-determinism","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#global-determinism"},
+    {"id":"runtime-apis","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#runtime-apis"},
+    {"id":"eos-lifecycle","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#eos-lifecycle"},
+    {"id":"master-control-plane","version":"1.0","runtime_contract_ref":"../schemas/runtime_contract.schema.json#master-control-plane"}
+  ]
+}

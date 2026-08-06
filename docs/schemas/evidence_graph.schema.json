@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/evidence_graph.schema.json",
+  "title": "evidence_graph",
+  "description": "Content-addressed evidence graph.",
+  "type": "object",
+  "required": ["nodes","global_checksum","created_at"],
+  "properties": {
+    "nodes": {"type":"array","items":{"$ref":"evidence_node.schema.json"}},
+    "edges": {"type":"array","items":{"type":"object","properties":{"from":{"type":"string"},"to":{"type":"string"}}}},
+    "global_checksum": {"type":"string"},
+    "created_at": {"type":"string","format":"date-time"}
+  },
+  "additionalProperties": false
+}

@@ -19,947 +19,13 @@
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%2314181F'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23E8A33D'%3E%E2%9C%93%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600,700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/main.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<style>
-  :root{
-    /* Corporate/fintech palette — deep navy for trust + authority,
-       emerald for money/growth, cool grays instead of warm cream.
-       Deliberately moving away from warm-cream+terracotta, which is
-       the generic "AI-generated" default look. */
-    --ink:#101826;        /* was warm near-black, now deep navy-ink */
-    --paper:#F7F8FA;       /* was warm cream #EFE9DE, now cool off-white */
-    --paper-dim:#ECEEF3;   /* was warm tan, now light cool gray */
-    --amber:#0F6E5C;       /* was terracotta amber, now deep emerald (kept var name for compatibility) */
-    --sage:#3B4A63;        /* was sage green, now muted slate-blue */
-    --line:#DCE1EA;        /* was warm tan hairline, now cool gray hairline */
-    --navy:#0B1220;
-    --accent-bright:#17B890;
-  }
-  h1, h2, h3, .brand, .section-title, .step-label{ font-family:'Space Grotesk', 'Inter', sans-serif; }
-  *{box-sizing:border-box; margin:0; padding:0;}
-  html{scroll-behavior:smooth;}
-  body{
-    background:var(--paper);
-    color:var(--ink);
-    font-family:'Inter', sans-serif;
-    line-height:1.5;
-  }
-  .mono{font-family:'IBM Plex Mono', monospace;}
-  header{
-    padding:28px 6vw 0;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-  }
-  .brand{font-family:'IBM Plex Mono', monospace; font-weight:600; letter-spacing:0.02em; font-size:15px;}
-  .brand span{color:var(--amber);}
-  nav a{
-    color:var(--ink);
-    text-decoration:none;
-    font-size:14px;
-    margin-left:28px;
-    font-weight:500;
-    opacity:0.75;
-  }
-  nav a:hover{opacity:1;}
+  <script defer src="assets/js/hero.js"></script>
+  <script defer src="assets/js/demo.js"></script>
+  <script defer src="assets/js/ui-enhance.js"></script>
 
-  .hero{
-    padding:8vh 6vw 6vh;
-    display:grid;
-    grid-template-columns:1.1fr 0.9fr;
-    gap:40px;
-    align-items:center;
-  }
-  .eyebrow{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:13px;
-    color:var(--sage);
-    letter-spacing:0.06em;
-    text-transform:uppercase;
-    margin-bottom:18px;
-    display:block;
-  }
-  h1{
-    font-size:clamp(2.2rem, 4.5vw, 3.6rem);
-    line-height:1.08;
-    font-weight:700;
-    letter-spacing:-0.01em;
-    max-width:14ch;
-  }
-  h1 em{
-    font-style:normal;
-    color:var(--amber);
-  }
-  .sub{
-    margin-top:22px;
-    font-size:1.05rem;
-    max-width:46ch;
-    color:#3b4048;
-  }
-  .cta-row{
-    margin-top:32px;
-    display:flex;
-    gap:14px;
-    flex-wrap:wrap;
-  }
-  .btn{
-    display:inline-block;
-    padding:14px 26px;
-    border-radius:7px;
-    font-weight:600;
-    font-size:15px;
-    text-decoration:none;
-    transition:transform 0.15s ease;
-  }
-  .btn-primary{
-    background:var(--ink);
-    color:var(--paper);
-  }
-  .btn-primary:hover{transform:translateY(-2px);}
-  .btn-ghost{
-    border:1.5px solid var(--ink);
-    color:var(--ink);
-  }
-  .btn-ghost:hover{background:var(--ink); color:var(--paper);}
-
-  /* Signature element: grid that resolves from chaos to order */
-  .grid-demo{
-    background:var(--ink);
-    border-radius:4px;
-    padding:22px;
-    aspect-ratio:1/0.85;
-    display:grid;
-    grid-template-columns:repeat(6, 1fr);
-    grid-template-rows:repeat(7, 1fr);
-    gap:5px;
-  }
-  .cell{
-    background:#232A36;
-    border-radius:1px;
-    transition:background 1.8s ease, transform 1.8s ease;
-  }
-  .cell.on{background:var(--amber);}
-  .cell.sage{background:var(--sage);}
-  .grid-caption{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:12px;
-    color:var(--paper-dim);
-    margin-top:14px;
-    text-align:center;
-    letter-spacing:0.03em;
-  }
-
-  section{padding:6vh 6vw;}
-  .divider{
-    border-top:1.5px solid var(--line);
-  }
-  .section-title{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:13px;
-    text-transform:uppercase;
-    letter-spacing:0.06em;
-    color:var(--sage);
-    margin-bottom:28px;
-  }
-
-  .services{
-    display:grid;
-    grid-template-columns:repeat(3, 1fr);
-    gap:1px;
-    background:var(--line);
-    border:1px solid var(--line);
-  }
-  .service{
-    background:var(--paper);
-    padding:28px 24px;
-  }
-  .service .tag{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:12px;
-    color:var(--amber);
-    display:block;
-    margin-bottom:10px;
-  }
-  .service h3{
-    font-size:1.15rem;
-    margin-bottom:10px;
-    font-weight:600;
-  }
-  .service p{
-    font-size:0.92rem;
-    color:#4a4f57;
-    margin-bottom:14px;
-  }
-  .price{
-    font-family:'IBM Plex Mono', monospace;
-    font-weight:600;
-    font-size:1.05rem;
-  }
-  .turn{
-    font-size:0.8rem;
-    color:var(--sage);
-    margin-top:4px;
-  }
-
-  .proof{
-    display:grid;
-    grid-template-columns:repeat(3, 1fr);
-    gap:24px;
-  }
-  .proof-item{
-    border:1px solid var(--line);
-    padding:22px;
-    background:var(--paper);
-  }
-  .proof-item .num{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:1.8rem;
-    font-weight:600;
-    color:var(--ink);
-  }
-  .proof-item .lbl{
-    font-size:0.85rem;
-    color:#4a4f57;
-    margin-top:4px;
-  }
-
-  .contact{
-    background:var(--ink);
-    color:var(--paper);
-    border-radius:4px;
-    padding:5vh 5vw;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    flex-wrap:wrap;
-    gap:24px;
-  }
-  .contact h2{
-    font-size:1.7rem;
-    max-width:20ch;
-  }
-  .contact .btn-primary{
-    background:var(--amber);
-    color:var(--ink);
-  }
-  footer{
-    text-align:center;
-    padding:30px 6vw 40px;
-    font-size:0.8rem;
-    color:#6b7078;
-    font-family:'IBM Plex Mono', monospace;
-  }
-
-  @media (max-width: 800px){
-    .hero{grid-template-columns:1fr;}
-    .services{grid-template-columns:1fr;}
-    .proof{grid-template-columns:1fr;}
-    .contact{flex-direction:column; align-items:flex-start;}
-  }
-  @media (max-width: 420px){
-    header{flex-wrap:wrap; gap:10px;}
-    nav a{margin-left:0; margin-right:18px; font-size:13px;}
-  }
-  @media (prefers-reduced-motion: reduce){
-    .cell{transition:none;}
-  }
-
-  /* --- Tools section --- */
-  .tool-panel{
-    background:#fff;
-    border:1px solid var(--line);
-    border-radius:10px;
-    padding:32px;
-    margin-bottom:20px;
-    box-shadow:0 1px 3px rgba(16,24,38,0.06), 0 1px 2px rgba(16,24,38,0.04);
-  }
-  .step-label{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:12px;
-    color:var(--sage);
-    text-transform:uppercase;
-    letter-spacing:0.06em;
-    margin-bottom:14px;
-    display:block;
-  }
-  .dropzone{
-    border:2px dashed var(--line);
-    border-radius:4px;
-    padding:36px 20px;
-    text-align:center;
-    cursor:pointer;
-    transition:border-color 0.15s ease, background 0.15s ease;
-  }
-  .dropzone.drag{border-color:var(--amber); background:#fdf7ec;}
-  .dropzone p{font-size:0.95rem; color:#4a4f57;}
-  .dropzone .filename{
-    margin-top:10px;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.85rem;
-    color:var(--ink);
-    font-weight:600;
-  }
-  input[type=file]{display:none;}
-  .tool-options{
-    display:grid;
-    grid-template-columns:repeat(3, 1fr);
-    gap:14px;
-    margin-top:20px;
-  }
-  .topt{
-    border:1px solid var(--line);
-    border-radius:4px;
-    padding:16px;
-    cursor:pointer;
-    transition:border-color 0.15s ease, background 0.15s ease;
-  }
-  .topt.active{border-color:var(--amber); background:#fdf7ec;}
-  .topt input{margin-right:8px;}
-  .topt .otitle{font-weight:600; font-size:0.95rem;}
-  .topt .odesc{font-size:0.8rem; color:#6b7078; margin-top:4px;}
-  .btn-primary:disabled{opacity:0.4; cursor:not-allowed;}
-  .tool-error{color:#b5493a; font-size:0.9rem; margin-top:14px;}
-  .upload-status{
-    display:none;
-    margin-top:14px;
-    border:1px solid var(--line);
-    border-radius:8px;
-    background:#F7F8FA;
-    padding:14px;
-    font-size:0.86rem;
-    color:#303844;
-  }
-  .upload-status.ok{border-color:#B7E3D7; background:#F2FBF8;}
-  .upload-status.warn{border-color:#F0D39A; background:#FFF9EB;}
-  .upload-status.err{border-color:#E7B7AD; background:#FFF5F2;}
-  .upload-status.busy{border-color:#BFD0EA; background:#F3F7FF;}
-  .upload-status-title{font-weight:700; margin-bottom:8px;}
-  .upload-status-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin-top:8px;}
-  .upload-chip{border:1px solid rgba(16,24,38,0.08); border-radius:7px; background:#fff; padding:8px 10px;}
-  .upload-chip b{display:block; font-family:'IBM Plex Mono', monospace; font-size:0.72rem; color:#6b7078; margin-bottom:2px;}
-  .upload-status ul{margin:8px 0 0 18px;}
-  .upload-status li{margin:4px 0;}
-  .mapping-panel{
-    display:none;
-    margin-top:16px;
-    border:1px solid var(--line);
-    border-radius:8px;
-    background:#FCFBF7;
-    padding:16px;
-  }
-  .mapping-panel-head{
-    display:flex;
-    justify-content:space-between;
-    gap:12px;
-    align-items:flex-start;
-    margin-bottom:12px;
-  }
-  .mapping-panel-title{font-weight:700; color:var(--ink);}
-  .mapping-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px;}
-  .mapping-field label{display:block; font-size:0.78rem; font-weight:700; color:#4a4f57; margin-bottom:5px;}
-  .mapping-field select{
-    width:100%;
-    border:1px solid var(--line);
-    border-radius:6px;
-    background:#fff;
-    color:var(--ink);
-    padding:9px 10px;
-    font-size:0.86rem;
-  }
-  .mapping-summary{font-size:0.8rem; color:#6b7078; margin-top:10px;}
-  .tool-hint{font-size:0.82rem; color:#6b7078; margin-top:10px;}
-  .tool-results h3{font-size:1.1rem; margin-bottom:6px;}
-  .result-block{border:1px solid var(--line); border-radius:4px; margin-top:16px; overflow:hidden;}
-  .result-head{
-    background:var(--ink);
-    color:var(--paper);
-    padding:10px 16px;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.82rem;
-  }
-  .result-head button{
-    background:var(--amber);
-    color:var(--ink);
-    border:none;
-    padding:6px 14px;
-    border-radius:2px;
-    font-weight:600;
-    font-size:0.8rem;
-    cursor:pointer;
-  }
-  .result-block pre{
-    padding:16px;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.78rem;
-    max-height:260px;
-    overflow:auto;
-    white-space:pre-wrap;
-    color:#2a2f38;
-    background:#fbf9f4;
-  }
-  .empty-note{font-size:0.85rem; color:#6b7078; padding:16px;}
-  @media (max-width:700px){
-    .tool-options{grid-template-columns:1fr;}
-  }
-
-  /* --- Priority 3 utility tools --- */
-  .utility-tools{
-    margin-top:28px;
-    border-top:1px solid var(--line);
-    padding-top:28px;
-  }
-  .utility-intro{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-end;
-    gap:18px;
-    margin-bottom:18px;
-    flex-wrap:wrap;
-  }
-  .utility-intro h3{font-size:1.25rem; margin-bottom:6px;}
-  .utility-tabs{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-  }
-  .utility-tab{
-    border:1px solid var(--line);
-    background:#fff;
-    color:var(--ink);
-    border-radius:4px;
-    padding:8px 12px;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.78rem;
-    cursor:pointer;
-  }
-  .utility-tab.active{
-    background:var(--ink);
-    color:var(--paper);
-    border-color:var(--ink);
-  }
-  .utility-grid{
-    display:grid;
-    grid-template-columns:repeat(2, minmax(0, 1fr));
-    gap:16px;
-  }
-  .utility-card{
-    border:1px solid var(--line);
-    background:#fff;
-    border-radius:8px;
-    padding:18px;
-    display:flex;
-    flex-direction:column;
-    gap:12px;
-    min-width:0;
-  }
-  .utility-card[hidden]{display:none;}
-  .utility-head{
-    display:flex;
-    gap:12px;
-    align-items:flex-start;
-  }
-  .utility-icon{
-    width:36px;
-    height:36px;
-    border-radius:6px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    background:var(--paper-dim);
-    font-size:1.1rem;
-    flex:0 0 auto;
-  }
-  .utility-card h4{font-size:1rem; margin-bottom:3px;}
-  .utility-card p{font-size:0.82rem; color:#586070;}
-  .utility-dropzone{
-    border:2px dashed var(--line);
-    border-radius:6px;
-    padding:18px 14px;
-    cursor:pointer;
-    text-align:center;
-    transition:border-color 0.15s ease, background 0.15s ease;
-  }
-  .utility-dropzone.drag{border-color:var(--amber); background:#eef8f5;}
-  .utility-dropzone strong{display:block; font-size:0.85rem;}
-  .utility-dropzone span{display:block; margin-top:4px; font-size:0.76rem; color:#6b7078;}
-  .utility-files{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.75rem;
-    color:var(--sage);
-    min-height:1.2em;
-  }
-  .utility-fields{
-    display:grid;
-    gap:8px;
-  }
-  .utility-fields input,
-  .utility-fields textarea,
-  .utility-fields select{
-    width:100%;
-    border:1px solid var(--line);
-    border-radius:5px;
-    padding:9px 10px;
-    font-family:'Inter', sans-serif;
-    font-size:0.85rem;
-  }
-  .utility-fields textarea{
-    min-height:92px;
-    resize:vertical;
-  }
-  .utility-actions{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    flex-wrap:wrap;
-    margin-top:auto;
-  }
-  .utility-actions .btn{padding:10px 16px; font-size:0.84rem;}
-  .utility-progress{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.76rem;
-    color:var(--sage);
-  }
-  .utility-error{
-    color:#b5493a;
-    font-size:0.8rem;
-    min-height:1.1em;
-  }
-  .utility-download{display:none;}
-  .utility-download.ready{display:inline-block;}
-  @media (max-width:900px){
-    .utility-grid{grid-template-columns:1fr;}
-  }
-  @media (max-width:520px){
-    .utility-card{padding:15px;}
-    .utility-actions .btn{width:100%; text-align:center;}
-    .utility-progress{width:100%;}
-  }
-
-  /* --- Before/after proof --- */
-  .before-after{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:20px;
-  }
-  .ba-col{display:flex; flex-direction:column;}
-  .ba-label{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:12px;
-    text-transform:uppercase;
-    letter-spacing:0.06em;
-    margin-bottom:8px;
-    font-weight:600;
-  }
-  .ba-before{color:var(--err, #b5493a);}
-  .ba-after{color:var(--sage);}
-  .ba-pre{
-    background:var(--ink);
-    color:#d8d2c2;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.72rem;
-    padding:16px;
-    border-radius:4px;
-    overflow-x:auto;
-    line-height:1.6;
-    margin:0;
-  }
-  @media (max-width:700px){
-    .before-after{grid-template-columns:1fr;}
-  }
-
-  /* --- Contact form --- */
-  .contact-form{
-    display:grid;
-    gap:12px;
-    max-width:420px;
-  }
-  .contact-form input, .contact-form textarea{
-    font-family:'Inter', sans-serif;
-    font-size:0.95rem;
-    padding:12px 14px;
-    border:1px solid var(--line);
-    border-radius:2px;
-    background:#fff;
-    color:var(--ink);
-  }
-  .contact-form textarea{resize:vertical; min-height:70px;}
-  .contact-note{
-    font-size:0.8rem;
-    color:var(--paper-dim);
-    margin-top:10px;
-  }
-  .contact-note.ok{color:#3ED598;}
-  .contact-note.err{color:#F0A868;}
-  .sr-only{
-    position:absolute;
-    width:1px; height:1px;
-    overflow:hidden;
-    clip:rect(0,0,0,0);
-  }
-
-  /* --- Locked session UI --- */
-  .locked-head{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    gap:20px;
-    flex-wrap:wrap;
-    margin-bottom:20px;
-  }
-  .timer-box{
-    background:var(--ink);
-    color:var(--paper);
-    border-radius:4px;
-    padding:10px 18px;
-    text-align:center;
-    min-width:100px;
-  }
-  .timer-label{
-    display:block;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:10px;
-    text-transform:uppercase;
-    letter-spacing:0.05em;
-    color:var(--paper-dim);
-  }
-  .timer-value{
-    display:block;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:1.4rem;
-    font-weight:600;
-    color:var(--amber);
-  }
-  .timer-value.urgent{color:#e05c48;}
-  .option-locks{
-    display:grid;
-    grid-template-columns:repeat(3, 1fr);
-    gap:14px;
-    margin-bottom:20px;
-  }
-  .opt-lock-card{
-    border:1px solid var(--line);
-    border-radius:4px;
-    padding:16px;
-    text-align:center;
-  }
-  .opt-lock-card.unlocked{
-    border-color:var(--sage);
-    background:#f4f6f0;
-  }
-  .opt-lock-card .ol-icon{font-size:1.3rem; display:block; margin-bottom:6px;}
-  .opt-lock-card .ol-title{font-weight:600; font-size:0.9rem;}
-  .opt-lock-card .ol-status{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.75rem;
-    color:var(--sage);
-    margin-top:4px;
-  }
-  .opt-lock-card.locked .ol-status{color:#8a8375;}
-  @media (max-width:700px){
-    .option-locks{grid-template-columns:1fr;}
-  }
-
-  /* --- Admin panel --- */
-  .admin-panel{
-    background:#fff3d6;
-    border:2px dashed var(--amber);
-  }
-  .admin-panel input{
-    font-family:'Inter', sans-serif;
-    font-size:0.9rem;
-    padding:10px 12px;
-    border:1px solid var(--line);
-    border-radius:2px;
-    margin-bottom:10px;
-    width:100%;
-    max-width:400px;
-    display:block;
-  }
-  .admin-check-row{
-    display:flex;
-    gap:16px;
-    margin:12px 0;
-    flex-wrap:wrap;
-  }
-  .admin-check-row label{font-size:0.9rem; display:flex; align-items:center; gap:6px;}
-  .admin-result{
-    margin-top:12px;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.85rem;
-  }
-
-  /* --- Limit banner & pricing CTAs --- */
-  .limit-banner{
-    background:var(--ink);
-    color:var(--paper);
-    border:2px solid var(--amber);
-    border-radius:4px;
-    padding:20px 22px;
-    margin-top:16px;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    flex-wrap:wrap;
-    gap:14px;
-  }
-  .limit-banner .lb-text{
-    font-size:0.92rem;
-  }
-  .limit-banner .lb-text strong{color:var(--amber);}
-  .limit-banner .btn-primary{
-    background:var(--amber);
-    color:var(--ink);
-    white-space:nowrap;
-  }
-  .service-cta{
-    display:inline-block;
-    margin-top:14px;
-    padding:9px 16px;
-    border:1.5px solid var(--ink);
-    border-radius:2px;
-    font-size:0.85rem;
-    font-weight:600;
-    color:var(--ink);
-    text-decoration:none;
-    transition:background 0.15s ease, color 0.15s ease;
-  }
-  .service-cta:hover{background:var(--ink); color:var(--paper);}
-
-  /* --- Monthly plan + membership bar (NEW) --- */
-  .member-bar{
-    display:flex;
-    align-items:center;
-    gap:12px;
-    margin-bottom:16px;
-    flex-wrap:wrap;
-  }
-  .member-bar input{
-    flex:1;
-    min-width:220px;
-    padding:9px 12px;
-    border:1px solid var(--line);
-    border-radius:6px;
-    font-family:'Inter', sans-serif;
-    font-size:0.85rem;
-  }
-  .member-status{font-family:'IBM Plex Mono', monospace; font-size:0.8rem;}
-  .member-status.active{color:var(--accent-bright);}
-  .plan-panel{
-    background:linear-gradient(135deg, var(--navy) 0%, #14243F 100%);
-    color:#fff;
-    margin-bottom:20px;
-  }
-  .plan-panel .step-label{color:var(--accent-bright);}
-  .plan-panel .tool-hint{color:#B9C2D6;}
-  .plan-row{
-    display:flex;
-    align-items:center;
-    gap:12px;
-    flex-wrap:wrap;
-  }
-  .plan-price{
-    font-size:1.6rem;
-    font-weight:600;
-    color:#fff;
-  }
-  .plan-price span{font-size:0.85rem; color:#B9C2D6; font-weight:400;}
-  .plan-row input{
-    flex:1;
-    min-width:200px;
-    padding:9px 12px;
-    border:1px solid rgba(255,255,255,0.25);
-    border-radius:6px;
-    background:rgba(255,255,255,0.08);
-    color:#fff;
-    font-family:'Inter', sans-serif;
-    font-size:0.85rem;
-  }
-  .plan-row input::placeholder{color:#8792A8;}
-  .plan-row button{background:var(--accent-bright); color:var(--navy); border:none;}
-
-  .chat-bubble{
-    position:fixed;
-    bottom:22px;
-    right:22px;
-    background:var(--ink);
-    color:var(--amber);
-    width:56px;
-    height:56px;
-    border-radius:50%;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-size:1.5rem;
-    border:none;
-    cursor:pointer;
-    box-shadow:0 4px 14px rgba(0,0,0,0.25);
-    z-index:999;
-    transition:transform 0.15s ease;
-  }
-  .chat-bubble:hover{transform:scale(1.08);}
-  .chat-panel{
-    position:fixed;
-    bottom:90px;
-    right:22px;
-    width:min(340px, 90vw);
-    max-height:70vh;
-    background:#fff;
-    border:1px solid var(--line);
-    border-radius:8px;
-    box-shadow:0 10px 30px rgba(0,0,0,0.2);
-    display:none;
-    flex-direction:column;
-    overflow:hidden;
-    z-index:999;
-  }
-  .chat-panel.open{display:flex;}
-  .chat-head{
-    background:var(--ink);
-    color:var(--paper);
-    padding:14px 16px;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-  }
-  .chat-head strong{font-size:0.95rem;}
-  .chat-head span{font-size:0.75rem; color:var(--paper-dim); display:block; margin-top:2px;}
-  .chat-close{background:none; border:none; color:var(--paper); font-size:1.1rem; cursor:pointer; line-height:1;}
-  .chat-body{
-    flex:1;
-    overflow-y:auto;
-    padding:14px 16px;
-    background:#fbf9f4;
-    display:flex;
-    flex-direction:column;
-    gap:10px;
-    min-height:120px;
-  }
-  .chat-msg{
-    max-width:85%;
-    padding:9px 12px;
-    border-radius:10px;
-    font-size:0.87rem;
-    line-height:1.4;
-  }
-  .chat-msg.bot{
-    background:#eee7d8;
-    color:var(--ink);
-    align-self:flex-start;
-    border-bottom-left-radius:2px;
-  }
-  .chat-msg.me{
-    background:var(--amber);
-    color:var(--ink);
-    align-self:flex-end;
-    border-bottom-right-radius:2px;
-  }
-  .chat-quick-replies{
-    display:flex;
-    flex-wrap:wrap;
-    gap:6px;
-    align-self:flex-start;
-    max-width:100%;
-  }
-  .chat-quick-replies button{
-    font-size:0.78rem;
-    padding:6px 10px;
-    border-radius:14px;
-    border:1px solid var(--line);
-    background:#fff;
-    cursor:pointer;
-    color:var(--ink);
-  }
-  .chat-quick-replies button:hover{background:#eee7d8;}
-  .chat-input-row{
-    border-top:1px solid var(--line);
-    padding:10px;
-    display:flex;
-    gap:8px;
-    background:#fff;
-  }
-  .chat-input-row input[type=text]{
-    flex:1;
-    border:1px solid var(--line);
-    border-radius:6px;
-    padding:9px 10px;
-    font-family:'Inter', sans-serif;
-    font-size:0.87rem;
-  }
-  .chat-input-row button{
-    background:var(--ink);
-    color:var(--paper);
-    border:none;
-    border-radius:6px;
-    padding:0 16px;
-    font-weight:600;
-    cursor:pointer;
-    font-size:0.85rem;
-  }
-  .chat-input-row button:disabled{opacity:0.5; cursor:not-allowed;}
-  .chat-email-row{padding:8px 10px 0;}
-  .chat-email-row input{
-    width:100%;
-    border:1px solid var(--line);
-    border-radius:6px;
-    padding:8px 10px;
-    font-size:0.82rem;
-    font-family:'Inter', sans-serif;
-  }
-  @media (max-width:420px){
-    .chat-panel{right:12px; bottom:82px; width:calc(100vw - 24px);}
-    .chat-bubble{right:16px; bottom:16px;}
-  }
-
-  /* --- Price + pay button (NEW) --- */
-  .gst-row{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    margin:16px 0;
-    flex-wrap:wrap;
-    font-size:0.88rem;
-  }
-  .gst-row input[type=number]{
-    width:70px;
-    padding:6px 8px;
-    border:1px solid var(--line);
-    border-radius:6px;
-    font-family:'IBM Plex Mono', monospace;
-  }
-  .gst-row input[type=number]:disabled{background:var(--paper-dim); color:#999;}
-  .price-line{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:1rem;
-    font-weight:600;
-    margin:14px 0 6px;
-  }
-  .price-line .amt{color:var(--amber);}
-  .price-breakdown{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.82rem;
-    color:var(--ink-soft, #666);
-    margin-top:10px;
-    line-height:1.7;
-  }
-  .price-breakdown .pb-row{display:flex; justify-content:space-between; gap:12px; max-width:320px;}
-  .price-breakdown .pb-discount{color:var(--emerald, #0F6E5C);}
-  .pay-btn{
-    background:#25D366;
-    color:#fff;
-  }
-  .pay-btn:disabled{opacity:0.5; cursor:not-allowed;}
-  .pay-status{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.82rem;
-    margin-top:10px;
-  }
-  .pay-status.err{color:#e05c48;}
-  .pay-status.ok{color:var(--sage);}
-</style>
 <!--
   Cloudflare Web Analytics — free, cookie-less visitor analytics (page
   views, referrers, where people drop off). Get your token:
@@ -980,19 +46,86 @@
   </nav>
 </header>
 
-<section class="hero">
-  <div>
-    <span class="eyebrow">Spreadsheets & automation, fixed today</span>
-    <h1>Your messy spreadsheet, <em>sorted by tonight.</em></h1>
-    <p class="sub">I clean up broken spreadsheets, automate repetitive busywork, and build small tools — for small businesses who need it done today, not next month. Usually reply within 1 hour.</p>
-    <div class="cta-row">
-      <a href="#contact" class="btn btn-primary">Get a same-day quote</a>
-      <a href="#tools" class="btn btn-ghost">Try the live tool →</a>
+<section class="hero-shell">
+  <div class="container hero-content">
+    <div class="hero-copy">
+      <span class="eyebrow">Spreadsheet cleanup that feels premium</span>
+      <h1>Fix messy CSVs, preview before you pay, and unlock clean business data instantly.</h1>
+      <p class="hero-text">Upload any file, let QuickFix detect columns, clean rows, and prepare invoices & reminders with one click. No surprises, no hidden fees, same-day turnaround.</p>
+      <div class="hero-actions">
+        <a href="#tools" class="btn btn-primary">Try it live</a>
+        <a href="#contact" class="btn btn-secondary">Request a quote</a>
+      </div>
+      <div class="hero-trust">
+        <div>Pay after preview</div>
+        <div>Bank-level protection</div>
+        <div>Same-day delivery</div>
+      </div>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+      <div class="hero-visual-panel">
+        <div class="hero-visual-header">
+          <div class="hero-visual-title">Workflow preview</div>
+          <span class="hero-visual-badge">Upload • Detect • Clean • Unlock</span>
+        </div>
+        <div class="hero-visual-stats">
+          <div class="hero-step">Upload your CSV or receipt image and keep control of every change.</div>
+          <div class="hero-step">Auto-detect columns, standardize names, amounts, dates, and payment status.</div>
+          <div class="hero-step">Review a free 3-row preview before paying anything.</div>
+          <div class="hero-step">Unlock the full results instantly after payment.</div>
+        </div>
+      </div>
     </div>
   </div>
-  <div>
-    <div class="grid-demo" id="gridDemo"></div>
-    <div class="grid-caption">chaos → order, same day</div>
+</section>
+
+<section id="interactiveDemo" class="demo-section">
+  <div class="container demo-grid">
+    <div class="demo-visual" aria-hidden="false">
+      <div class="pipeline-panel">
+        <div class="pipeline-header"><strong>Live demo</strong> • See a full CSV processing pipeline</div>
+        <div class="pipeline-steps" id="pipelineSteps">
+          <!-- Steps injected by demo.js -->
+        </div>
+        <div class="pipeline-progress" id="pipelineProgress" aria-hidden="true">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          <div class="progress-meta"><span id="progressStage">Waiting</span> • <span id="progressPercent">0%</span></div>
+        </div>
+      </div>
+      <div class="demo-insights" id="demoInsights">
+        <div class="insight">
+          <div class="insight-title">AI Insights</div>
+          <div class="insight-body" id="insightBody">No activity yet — scroll to start the demo.</div>
+        </div>
+        <div class="demo-counters">
+          <div class="counter"><div class="count" id="countRows">—</div><div class="label">Rows</div></div>
+          <div class="counter"><div class="count" id="countErrors">—</div><div class="label">Validation fixes</div></div>
+          <div class="counter"><div class="count" id="countDups">—</div><div class="label">Duplicates</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-output">
+      <div class="preview-head">Before → After preview</div>
+      <div class="before-after-slider" id="baSlider">
+        <div class="ba-panel ba-before" id="baBefore">
+          <div class="ba-title">Original (messy)</div>
+          <pre id="beforeSample" class="ba-pre">Name, email, amount, due, paid
+riverside cafe, riverside@x.com, 450 , 07/05/2026, no
+Bloom Salon ,bloom@x.com,220,2026-07-10,YES
+riverside cafe,riverside@x.com,450,07/05/2026,no</pre>
+        </div>
+        <div class="ba-panel ba-after" id="baAfter">
+          <div class="ba-title">Processed (clean)</div>
+          <pre id="afterSample" class="ba-pre">&nbsp;</pre>
+        </div>
+        <div class="ba-handle" id="baHandle" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-label="Before/after slider"></div>
+      </div>
+      <div class="demo-actions">
+        <button class="btn btn-primary" id="demoStart">Start demo</button>
+        <button class="btn btn-ghost" id="demoReset">Reset</button>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -1030,6 +163,152 @@
   <p class="sub" style="margin-top:22px; color:var(--sage); font-weight:600;">Currently taking on new clients this week — early clients get 15% off their first job.</p>
 </section>
 
+<section id="proof-example"> 
+<!-- How It Works -->
+<section id="howItWorks" class="how-it-works">
+  <div class="container">
+    <div class="section-title">How it works</div>
+    <div class="how-journey">
+      <div class="journey-node">Upload &amp; Preview</div>
+      <div class="journey-connector">→</div>
+      <div class="journey-node">AI Analysis</div>
+      <div class="journey-connector">→</div>
+      <div class="journey-node">Validation</div>
+      <div class="journey-connector">→</div>
+      <div class="journey-node">Cleaning &amp; Dedupe</div>
+      <div class="journey-connector">→</div>
+      <div class="journey-node">Secure Payment</div>
+      <div class="journey-connector">→</div>
+      <div class="journey-node">Delivery &amp; Download</div>
+    </div>
+  </div>
+</section>
+
+<!-- Benefits -->
+<section id="benefits" class="benefits">
+  <div class="container">
+    <div class="section-title">Why QuickFix</div>
+    <div class="benefit-grid">
+      <div class="benefit-card">⏱ Save time<span class="benefit-desc">Get production-ready results in hours, not weeks.</span></div>
+      <div class="benefit-card">✅ Better accuracy<span class="benefit-desc">AI detects inconsistencies and validates changes.</span></div>
+      <div class="benefit-card">🔒 Secure<span class="benefit-desc">Files processed securely with unique payment references.</span></div>
+      <div class="benefit-card">⚡ Fast delivery<span class="benefit-desc">Same-day turnaround for typical requests.</span></div>
+      <div class="benefit-card">🧠 AI powered<span class="benefit-desc">AI assists for smarter mapping and corrections.</span></div>
+      <div class="benefit-card">🔁 Easy workflow<span class="benefit-desc">Preview first, pay only when you like the results.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- Trust -->
+<section id="trust" class="trust">
+  <div class="container">
+    <div class="section-title">Trusted by users</div>
+    <div class="trust-grid">
+      <div class="trust-item">Secure processing<div class="trust-desc">Data processed transiently; files removed after session expiry.</div></div>
+      <div class="trust-item">Privacy<div class="trust-desc">No resale of data; payment logs kept only for records.</div></div>
+      <div class="trust-item">AI validation<div class="trust-desc">Human-reviewed rules plus AI checks.</div></div>
+      <div class="trust-item">Fast support<div class="trust-desc">Usually replies within an hour to inquiries.</div></div>
+      <div class="trust-item">Transparent pricing<div class="trust-desc">Pay only when satisfied; clear per-job pricing.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Before / After Comparison (interactive handled by demo.js) -->
+<section id="beforeAfter" class="before-after-section">
+  <div class="container">
+    <div class="section-title">Before &amp; After</div>
+    <p class="tool-hint">Explore how QuickFix standardizes names, formats amounts, fixes dates, and removes duplicates.</p>
+    <div class="ba-embed">
+      <!-- reuse the demo's before/after preview if present -->
+      <div class="ba-embed-inner">
+        <div id="baEmbedBefore" class="ba-embed-panel">Original sample shown in the demo above.</div>
+        <div id="baEmbedAfter" class="ba-embed-panel">Processed sample shown in the demo above.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Testimonials -->
+<section id="testimonials" class="testimonials">
+  <div class="container">
+    <div class="section-title">Customer success</div>
+    <div class="testimonial-grid">
+      <div class="testimonial-card"><strong>Riverside Cafe</strong><div class="stars">★★★★★</div><p>"Saved us hours every week; invoices generated perfectly."</p></div>
+      <div class="testimonial-card"><strong>Bloom Salon</strong><div class="stars">★★★★★</div><p>"Accurate cleaning and fast turnaround — highly recommended."</p></div>
+      <div class="testimonial-card placeholder"><strong>Placeholder</strong><div class="stars">★★★★☆</div><p>More testimonials coming — replace with customer quotes.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section id="pricing" class="pricing">
+  <div class="container">
+    <div class="section-title">Pricing</div>
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div class="price-head">Pay per job</div>
+        <div class="price-amt">₹199<span>/small</span></div>
+        <div class="price-desc">One-off jobs — small files &amp; fixes</div>
+        <button class="btn btn-ghost">Choose</button>
+      </div>
+      <div class="price-card recommended">
+        <div class="price-head">Monthly plan</div>
+        <div class="price-amt">₹599<span>/month</span></div>
+        <div class="price-desc">Unlimited files for 33 days — best for regular users</div>
+        <button class="btn btn-primary">Subscribe</button>
+      </div>
+      <div class="price-card">
+        <div class="price-head">Enterprise</div>
+        <div class="price-amt">Custom</div>
+        <div class="price-desc">Contact for SLA &amp; integrations</div>
+        <button class="btn btn-ghost">Contact</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ (accessible accordion) -->
+<section id="faq" class="faq">
+  <div class="container">
+    <div class="section-title">FAQ</div>
+    <div class="accordion" id="faqAccordion">
+      <div class="acc-item"><button class="acc-toggle" aria-expanded="false">How does the free preview work?</button><div class="acc-panel">We show a 3-row preview derived from your file — nothing is charged until you unlock the full results.</div></div>
+      <div class="acc-item"><button class="acc-toggle" aria-expanded="false">Is my data secure?</button><div class="acc-panel">Files are processed transiently and removed after session expiry. Payment logs kept only for records.</div></div>
+      <div class="acc-item"><button class="acc-toggle" aria-expanded="false">What payment methods are supported?</button><div class="acc-panel">UPI QR-based payments are supported in India; contact for alternate arrangements.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Contact (enhanced but preserving form IDs) -->
+<section id="contactEnhanced">
+  <div class="container">
+    <div class="section-title">Contact</div>
+    <div class="contact-enhanced">
+      <form id="contactForm" class="contact-form" aria-describedby="contactNote">
+        <input id="cName" placeholder="Your name" required />
+        <input id="cEmail" type="email" placeholder="Your email" required />
+        <input id="cBiz" placeholder="Business name (optional)" />
+        <textarea id="cMsg" placeholder="Tell us about your task" required></textarea>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <button id="contactSubmitBtn" class="btn btn-primary" type="submit">Send inquiry →</button>
+          <div id="contactStatus" aria-live="polite"></div>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <div style="display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; align-items:center;">
+      <div>QUICKFIX/DATA — spreadsheet cleanup &amp; automation.</div>
+      <div style="display:flex; gap:12px; align-items:center;"><a href="#pricing">Pricing</a> <a href="#contact">Contact</a> <a href="#faq">FAQ</a></div>
+    </div>
+    <div style="margin-top:12px; font-size:0.85rem; color:var(--text-secondary);">© QuickFix Data — processing done with care. Privacy • Terms</div>
+  </div>
+</footer>
+
 <section id="proof-example">
   <div class="section-title">02 — What "fixed" actually looks like</div>
   <div class="before-after">
@@ -1052,6 +331,18 @@ Bloom Salon,bloom@x.com,220.00,2026-07-10,Yes</pre>
 
 <section id="tools">
   <div class="section-title">03 — Try it live</div>
+  <div class="tool-welcome">
+    <div>
+      <span class="eyebrow">Live file workflow</span>
+      <h2>Upload, preview, and unlock your cleaned data without paying first.</h2>
+      <p>QuickFix gives you a real preview of what your file will become, then lets you pay only when the results are right.</p>
+    </div>
+    <div class="tool-highlights">
+      <div class="highlight-card"><strong>Free preview</strong> See the first rows before payment.</div>
+      <div class="highlight-card"><strong>Choose your fix</strong> Clean, invoice, reminders — all in one workflow.</div>
+      <div class="highlight-card"><strong>Secure UPI payment</strong> Unique reference tracking for every request.</div>
+    </div>
+  </div>
   <p class="sub" style="margin-bottom:20px;">Upload your file, pick what you need, and it processes in full right away. Results stay <strong>locked for 10 minutes</strong> — pay securely online and they unlock the instant your payment is verified. Unpaid sessions are removed automatically.</p>
 
   <div class="member-bar">
@@ -2110,7 +1401,8 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
   }
 
 
-  const WORKER_URL = "https://api.quickfixdata.in";
+  const metaWorker = document.querySelector('meta[name="worker-url"]');
+  const WORKER_URL = metaWorker && metaWorker.content ? metaWorker.content : (window.__WORKER_URL__ || "https://api.quickfixdata.in");
 
   const RUN_TOOL_CATEGORIES = ['All', 'Spreadsheet', 'Documents', 'Business'];
   const RUN_TOOL_DEFS = [
@@ -2567,7 +1859,13 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
       startCountdown(result.expiresIn);
       startPolling(result.sessionId);
     } catch (err) {
-      const friendly = describeUploadError(err.message, currentLocalFileSummary);
+      let friendly;
+      const msg = String(err && err.message || err || '');
+      if (/failed to fetch|network|typeerror/i.test(msg)) {
+        friendly = `Could not reach the processing server at ${WORKER_URL}. Check your internet connection, the API host, and CORS (ALLOWED_ORIGIN).`;
+      } else {
+        friendly = describeUploadError(msg, currentLocalFileSummary);
+      }
       errorMsg.textContent = friendly;
       renderUploadDiagnostics({
         ...(currentLocalFileSummary || { filename: 'Upload', sourceType: 'File', sizeLabel: '—', rowCount: '—', headers: [], detected: {} }),
@@ -3391,3 +2689,4 @@ Bloom Salon,bloom@example.com,220,2026-07-10,yes
 
 </body>
 </html>
+

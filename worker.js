@@ -1365,7 +1365,7 @@ async function sendEmailIfConfigured(env, to, subject, text, attachmentBase64, a
     }
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.RESEND_API_KEY}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer {env.RESEND_API_KEY}` },
       body: JSON.stringify(payload),
     });
     const responseText = await res.text();
@@ -1374,12 +1374,13 @@ async function sendEmailIfConfigured(env, to, subject, text, attachmentBase64, a
     // the calling code to handle; it doesn't need to go to stdout too.
     console.log("RESEND STATUS:", res.status);
     
-    return {
-      sent: res.ok,
-      status: res.status,
-      response: responseText
-    };
-  } catch {
+    if (!res.ok) {
+      return { sent: false, reason: "provider-error", status: res.status, response: responseText };
+    }
+
+    return { sent: true, status: res.status, response: responseText };
+  } catch (e) {
+    console.log('RESEND NETWORK ERROR:', String(e).slice(0,200));
     return { sent: false, reason: "network-error" };
   }
 }
@@ -3676,3 +3677,4 @@ async function runScheduledSubscriptions(env) {
       }
     }
 }
+

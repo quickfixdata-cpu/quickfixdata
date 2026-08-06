@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/execution_manifest.schema.json",
+  "title": "execution_manifest",
+  "description": "Canonical execution manifest: execution_graph with schedule and metadata.",
+  "type": "object",
+  "required": ["id","run_seed","config_version","execution_graph","created_at"],
+  "properties": {
+    "id": {"type":"string","pattern":"^[a-z0-9-]+$"},
+    "run_seed": {"type":"string"},
+    "recon_id": {"type":"string"},
+    "commit_sha": {"type":"string"},
+    "config_version": {"type":"string"},
+    "created_at": {"type":"string","format":"date-time"},
+    "execution_graph": {"$ref":"execution_graph.schema.json"},
+    "schedule": {"type":"object"},
+    "metadata": {"type":"object"}
+  },
+  "additionalProperties": false
+}

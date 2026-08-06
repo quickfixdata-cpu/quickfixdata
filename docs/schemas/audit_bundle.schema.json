@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/audit_bundle.schema.json",
+  "title": "audit_bundle",
+  "description": "Audit archive produced by Audit Engine.",
+  "type": "object",
+  "required": ["id","execution_id","evidence_index","created_at","signature"],
+  "properties": {
+    "id": {"type":"string"},
+    "execution_id": {"type":"string"},
+    "evidence_index": {"type":"array","items":{"type":"string"}},
+    "created_at": {"type":"string","format":"date-time"},
+    "signature": {"type":"string"}
+  },
+  "additionalProperties": false
+}

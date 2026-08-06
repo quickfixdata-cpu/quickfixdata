@@ -1,0 +1,9 @@
+{
+  "id":"validation-report-sample",
+  "producer_engine":"global-validation",
+  "schema_id":"validation_report",
+  "execution_id":"sample-exec",
+  "violations": [],
+  "missing_evidence": [],
+  "created_at":"2026-08-06T11:04:41.198Z"
+}

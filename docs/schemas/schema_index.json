@@ -1,0 +1,24 @@
+{
+  "schemas": [
+    {"id":"execution_manifest.schema.json","title":"execution_manifest","version":"1.0","file":"execution_manifest.schema.json"},
+    {"id":"execution_graph.schema.json","title":"execution_graph","version":"1.0","file":"execution_graph.schema.json"},
+    {"id":"context_snapshot.schema.json","title":"context_snapshot","version":"1.0","file":"context_snapshot.schema.json"},
+    {"id":"runtime_contract.schema.json","title":"runtime_contract","version":"1.0","file":"runtime_contract.schema.json"},
+    {"id":"evidence_node.schema.json","title":"evidence_node","version":"1.0","file":"evidence_node.schema.json"},
+    {"id":"evidence_graph.schema.json","title":"evidence_graph","version":"1.0","file":"evidence_graph.schema.json"},
+    {"id":"decision_record.schema.json","title":"decision_record","version":"1.0","file":"decision_record.schema.json"},
+    {"id":"audit_bundle.schema.json","title":"audit_bundle","version":"1.0","file":"audit_bundle.schema.json"},
+    {"id":"policy.schema.json","title":"policy","version":"1.0","file":"policy.schema.json"},
+    {"id":"capability_registry.schema.json","title":"capability_registry","version":"1.0","file":"capability_registry.schema.json"},
+    {"id":"engine_registry.schema.json","title":"engine_registry","version":"1.0","file":"engine_registry.schema.json"},
+    {"id":"recon_report.schema.json","title":"recon_report","version":"1.0","file":"recon_report.schema.json"},
+    {"id":"repo_manifest.schema.json","title":"repo_manifest","version":"1.0","file":"repo_manifest.schema.json"},
+    {"id":"implementation_plan.schema.json","title":"implementation_plan","version":"1.0","file":"implementation_plan.schema.json"},
+    {"id":"validation_report.schema.json","title":"validation_report","version":"1.0","file":"validation_report.schema.json"},
+    {"id":"verification_evidence.schema.json","title":"verification_evidence","version":"1.0","file":"verification_evidence.schema.json"},
+    {"id":"test_plan.schema.json","title":"test_plan","version":"1.0","file":"test_plan.schema.json"},
+    {"id":"test_evidence.schema.json","title":"test_evidence","version":"1.0","file":"test_evidence.schema.json"},
+    {"id":"release_plan.schema.json","title":"release_plan","version":"1.0","file":"release_plan.schema.json"},
+    {"id":"determinism_proof.schema.json","title":"determinism_proof","version":"1.0","file":"determinism_proof.schema.json"}
+  ]
+}

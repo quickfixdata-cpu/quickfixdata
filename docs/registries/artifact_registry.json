@@ -1,0 +1,24 @@
+{
+  "registry_id": "artifact_registry",
+  "version": "1.0",
+  "schema_ref": "../schemas/repo_manifest.schema.json",
+  "purpose": "Registry of canonical artifact types, schemas, owners, and retention policies.",
+  "owner": "Artifact Registry Owner",
+  "metadata": { "created_at": "2026-08-06T10:42:43.189Z" },
+  "artifacts": [
+    {"id":"execution_manifest","schema_ref":"../schemas/execution_manifest.schema.json","owner":"Execution Planner Owner","retention_days":3650},
+    {"id":"execution_graph","schema_ref":"../schemas/execution_graph.schema.json","owner":"Execution Planner Owner","retention_days":3650},
+    {"id":"context_snapshot","schema_ref":"../schemas/context_snapshot.schema.json","owner":"Context Manager","retention_days":3650},
+    {"id":"evidence_graph","schema_ref":"../schemas/evidence_graph.schema.json","owner":"Evidence Aggregation Owner","retention_days":3650},
+    {"id":"decision_record","schema_ref":"../schemas/decision_record.schema.json","owner":"Decision Engine Owner","retention_days":3650},
+    {"id":"audit_bundle","schema_ref":"../schemas/audit_bundle.schema.json","owner":"Audit Owner","retention_days":3650},
+    {"id":"recon_report","schema_ref":"../schemas/recon_report.schema.json","owner":"Recon Owner","retention_days":3650},
+    {"id":"implementation_plan","schema_ref":"../schemas/implementation_plan.schema.json","owner":"Implementation Owner","retention_days":3650},
+    {"id":"validation_report","schema_ref":"../schemas/validation_report.schema.json","owner":"Global Validation Owner","retention_days":3650},
+    {"id":"verification_evidence","schema_ref":"../schemas/verification_evidence.schema.json","owner":"Verification Owner","retention_days":3650},
+    {"id":"test_plan","schema_ref":"../schemas/test_plan.schema.json","owner":"QA Owner","retention_days":3650},
+    {"id":"test_evidence","schema_ref":"../schemas/test_evidence.schema.json","owner":"QA Owner","retention_days":3650},
+    {"id":"release_plan","schema_ref":"../schemas/release_plan.schema.json","owner":"Release Owner","retention_days":3650},
+    {"id":"determinism_proof","schema_ref":"../schemas/determinism_proof.schema.json","owner":"Determinism Owner","retention_days":3650}
+  ]
+}

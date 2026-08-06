@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/release_plan.schema.json",
+  "title": "release_plan",
+  "description": "Release plan metadata and milestones.",
+  "type": "object",
+  "required": ["id","version","milestones","created_at"],
+  "properties": {
+    "id": {"type":"string"},
+    "version": {"type":"string"},
+    "milestones": {"type":"array","items":{"type":"object"}},
+    "created_at": {"type":"string","format":"date-time"}
+  },
+  "additionalProperties": false
+}

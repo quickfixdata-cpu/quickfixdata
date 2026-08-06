@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/policy.schema.json",
+  "title": "policy",
+  "description": "Policy rule format for Policy Enforcement Engine.",
+  "type": "object",
+  "required": ["id","description","rules","owner_role"],
+  "properties": {
+    "id": {"type":"string"},
+    "description": {"type":"string"},
+    "rules": {"type":"array","items":{"type":"object"}},
+    "owner_role": {"type":"string"}
+  },
+  "additionalProperties": false
+}
